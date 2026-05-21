@@ -412,10 +412,8 @@ namespace Omnimarket.Api.Services
                         Id = i.Id,
                         ProdutoId = i.ProdutoId,
                         NomeProduto = i.Produto?.Nome ?? string.Empty,
-                        SkuProduto = i.Produto?.Sku ?? string.Empty,
                         LojaId = i.Produto?.LojaId ?? 0,
                         NomeLoja = i.Produto?.Loja?.NomeFantasia ?? string.Empty,
-                        SlugLoja = i.Produto?.Loja?.Slug ?? string.Empty,
                         Quantidade = i.Quantidade,
                         PrecoUnitario = i.PrecoUnitario,
                         ValorTotal = i.ValorTotal

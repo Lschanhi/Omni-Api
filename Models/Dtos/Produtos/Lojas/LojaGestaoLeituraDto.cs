@@ -7,7 +7,6 @@ namespace Omnimarket.Api.Models.Dtos.Produtos.Lojas
         public int Id { get; set; }
         public int UsuarioId { get; set; }
         public string NomeFantasia { get; set; } = string.Empty;
-        public string Slug { get; set; } = string.Empty;
         public TipoDocumentoFiscalLoja TipoDocumentoFiscal { get; set; }
         public string DocumentoFiscal { get; set; } = string.Empty;
         public string DocumentoFiscalFormatado { get; set; } = string.Empty;

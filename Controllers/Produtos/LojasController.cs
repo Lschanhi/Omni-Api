@@ -82,7 +82,7 @@ namespace Omnimarket.Api.Controllers
                 var usuarioId = User.GetUserId();
                 var loja = await _lojaService.CriarMinhaLojaAsync(usuarioId, dto);
 
-                return CreatedAtAction(nameof(ObterPorSlug), new { slug = loja.Slug }, loja);
+                return CreatedAtAction(nameof(ObterPorId), new { id = loja.Id }, loja);
             }
             catch (InvalidOperationException ex)
             {
@@ -114,11 +114,11 @@ namespace Omnimarket.Api.Controllers
             }
         }
 
-        // Endpoint publico para consultar a loja pelo slug.
-        [HttpGet("{slug}")]
-        public async Task<IActionResult> ObterPorSlug(string slug)
+        // Endpoint publico para consultar a loja pelo identificador.
+        [HttpGet("{id:int}")]
+        public async Task<IActionResult> ObterPorId(int id)
         {
-            var loja = await _lojaService.ObterPorSlugAsync(slug);
+            var loja = await _lojaService.ObterPorIdAsync(id);
 
             if (loja == null)
                 return NotFound(new { mensagem = "Loja nao encontrada." });

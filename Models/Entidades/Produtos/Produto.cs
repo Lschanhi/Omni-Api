@@ -18,9 +18,6 @@ namespace Omnimarket.Api.Models.Entidades
         [Required, StringLength(100)]
         public string Categoria { get; set; } = string.Empty;
 
-        [Required, StringLength(40)]
-        public string Sku { get; set; } = string.Empty;
-
         [Range(0.01, double.MaxValue)]
         public decimal Preco { get; set; }
 

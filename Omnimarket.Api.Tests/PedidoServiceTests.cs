@@ -34,6 +34,33 @@ public class PedidoServiceTests
     }
 
     [Fact]
+    public async Task CriarPedido_DeveManterPrecoUnitarioOriginalMesmoAposAtualizacaoDoProduto()
+    {
+        using var fixture = new ServiceTestFixture();
+        var scenario = await fixture.CriarPedidoPendenteAsync(quantidade: 2, preco: 35m, estoque: 10);
+
+        var atualizado = await fixture.ProdutoService.UpdateAsync(
+            scenario.ProdutoId,
+            new ProdutoAtualizarDto
+            {
+                Preco = 49.90m
+            },
+            scenario.VendedorId);
+
+        fixture.Context.ChangeTracker.Clear();
+
+        var itemPedido = await fixture.Context.TBL_ITENS_PEDIDO
+            .SingleAsync(i => i.PedidoId == scenario.PedidoId);
+
+        var produtoAtualizado = await fixture.Context.TBL_PRODUTO
+            .SingleAsync(p => p.Id == scenario.ProdutoId);
+
+        Assert.True(atualizado);
+        Assert.Equal(35m, itemPedido.PrecoUnitario);
+        Assert.Equal(49.90m, produtoAtualizado.Preco);
+    }
+
+    [Fact]
     public async Task CriarPedido_DeveUsarCarrinhoQuandoBodyVierSemItens()
     {
         using var fixture = new ServiceTestFixture();

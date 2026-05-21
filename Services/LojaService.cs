@@ -1,4 +1,3 @@
-using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using Omnimarket.Api.Data;
 using Omnimarket.Api.Models;
@@ -91,12 +90,11 @@ namespace Omnimarket.Api.Services
                     pedidosComReceita.Contains(i.Pedido.StatusPedidosId));
 
             var produtosMaisVendidosPorQuantidade = await itensVendidosDaLoja
-                .GroupBy(i => new { i.ProdutoId, i.Produto.Nome, i.Produto.Sku })
+                .GroupBy(i => new { i.ProdutoId, i.Produto.Nome })
                 .Select(g => new LojaMetricaProdutoDto
                 {
                     ProdutoId = g.Key.ProdutoId,
                     Nome = g.Key.Nome,
-                    Sku = g.Key.Sku,
                     QuantidadeVendida = g.Sum(i => i.Quantidade),
                     ReceitaBruta = g.Sum(i => i.ValorTotal)
                 })
@@ -106,12 +104,11 @@ namespace Omnimarket.Api.Services
                 .ToListAsync();
 
             var produtosMaisVendidosPorReceita = await itensVendidosDaLoja
-                .GroupBy(i => new { i.ProdutoId, i.Produto.Nome, i.Produto.Sku })
+                .GroupBy(i => new { i.ProdutoId, i.Produto.Nome })
                 .Select(g => new LojaMetricaProdutoDto
                 {
                     ProdutoId = g.Key.ProdutoId,
                     Nome = g.Key.Nome,
-                    Sku = g.Key.Sku,
                     QuantidadeVendida = g.Sum(i => i.Quantidade),
                     ReceitaBruta = g.Sum(i => i.ValorTotal)
                 })
@@ -145,18 +142,17 @@ namespace Omnimarket.Api.Services
             };
         }
 
-        // Retorna uma loja publica ativa pelo slug.
-        public async Task<LojaLeituraDto?> ObterPorSlugAsync(string slug)
+        // Retorna uma loja publica ativa pelo identificador.
+        public async Task<LojaLeituraDto?> ObterPorIdAsync(int lojaId)
         {
-            var slugNormalizado = NormalizarSlug(slug);
-            if (string.IsNullOrWhiteSpace(slugNormalizado))
+            if (lojaId <= 0)
                 return null;
 
             var loja = await _context.TBL_LOJA
                 .AsNoTracking()
                 .Include(l => l.Endereco)
                 .Include(l => l.Telefone)
-                .FirstOrDefaultAsync(l => l.Slug == slugNormalizado && l.Ativa);
+                .FirstOrDefaultAsync(l => l.Id == lojaId && l.Ativa);
 
             return loja == null ? null : MapearPublico(loja);
         }
@@ -171,7 +167,6 @@ namespace Omnimarket.Api.Services
             if (!usuarioExiste)
                 throw new InvalidOperationException("Usuario nao encontrado.");
 
-            var slugBase = string.IsNullOrWhiteSpace(dto.Slug) ? dto.NomeFantasia : dto.Slug;
             var documentoFiscal = ValidarENormalizarDocumentoFiscal(dto.TipoDocumentoFiscal, dto.DocumentoFiscal);
 
             var documentoJaCadastrado = await _context.TBL_LOJA.AnyAsync(l =>
@@ -199,7 +194,6 @@ namespace Omnimarket.Api.Services
             {
                 UsuarioId = usuarioId,
                 NomeFantasia = dto.NomeFantasia.Trim(),
-                Slug = await GerarSlugUnicoAsync(slugBase),
                 TipoDocumentoFiscal = dto.TipoDocumentoFiscal,
                 DocumentoFiscal = documentoFiscal,
                 Descricao = LimparOpcional(dto.Descricao),
@@ -227,7 +221,6 @@ namespace Omnimarket.Api.Services
             if (loja == null)
                 return null;
 
-            var slugBase = string.IsNullOrWhiteSpace(dto.Slug) ? dto.NomeFantasia : dto.Slug;
             var documentoFiscal = ValidarENormalizarDocumentoFiscal(dto.TipoDocumentoFiscal, dto.DocumentoFiscal);
 
             var documentoJaCadastrado = await _context.TBL_LOJA.AnyAsync(l =>
@@ -239,7 +232,6 @@ namespace Omnimarket.Api.Services
                 throw new InvalidOperationException("Documento fiscal ja cadastrado em outra loja.");
 
             loja.NomeFantasia = dto.NomeFantasia.Trim();
-            loja.Slug = await GerarSlugUnicoAsync(slugBase, loja.Id);
             loja.TipoDocumentoFiscal = dto.TipoDocumentoFiscal;
             loja.DocumentoFiscal = documentoFiscal;
             loja.Descricao = LimparOpcional(dto.Descricao);
@@ -367,41 +359,6 @@ namespace Omnimarket.Api.Services
             return telefone;
         }
 
-        // Gera slug unico com sufixo numerico quando necessario.
-        private async Task<string> GerarSlugUnicoAsync(string valorBase, int? lojaIdIgnorar = null)
-        {
-            var slugBase = NormalizarSlug(valorBase);
-            if (string.IsNullOrWhiteSpace(slugBase))
-                throw new InvalidOperationException("Nao foi possivel gerar um slug valido para a loja.");
-
-            var slug = slugBase;
-            var contador = 2;
-
-            while (await _context.TBL_LOJA.AnyAsync(l =>
-                       l.Slug == slug &&
-                       (!lojaIdIgnorar.HasValue || l.Id != lojaIdIgnorar.Value)))
-            {
-                slug = $"{slugBase}-{contador}";
-                contador++;
-            }
-
-            return slug;
-        }
-
-        // Converte textos livres para um formato amigavel de URL.
-        private static string NormalizarSlug(string texto)
-        {
-            if (string.IsNullOrWhiteSpace(texto))
-                return string.Empty;
-
-            var semAcento = texto.RemoverAcentos().ToLowerInvariant();
-            semAcento = Regex.Replace(semAcento, @"[^a-z0-9\s-]", string.Empty);
-            semAcento = Regex.Replace(semAcento, @"\s+", "-");
-            semAcento = Regex.Replace(semAcento, @"-{2,}", "-");
-
-            return semAcento.Trim('-');
-        }
-
         private static string? LimparOpcional(string? valor)
         {
             if (string.IsNullOrWhiteSpace(valor))
@@ -508,7 +465,6 @@ namespace Omnimarket.Api.Services
                 Id = loja.Id,
                 UsuarioId = loja.UsuarioId,
                 NomeFantasia = loja.NomeFantasia,
-                Slug = loja.Slug,
                 TipoDocumentoFiscal = loja.TipoDocumentoFiscal,
                 DocumentoFiscalFormatado = DocumentoFiscalFormatter.Formatar(
                     loja.TipoDocumentoFiscal,
@@ -540,7 +496,6 @@ namespace Omnimarket.Api.Services
                 Id = loja.Id,
                 UsuarioId = loja.UsuarioId,
                 NomeFantasia = loja.NomeFantasia,
-                Slug = loja.Slug,
                 TipoDocumentoFiscal = loja.TipoDocumentoFiscal,
                 DocumentoFiscal = loja.DocumentoFiscal,
                 DocumentoFiscalFormatado = DocumentoFiscalFormatter.Formatar(

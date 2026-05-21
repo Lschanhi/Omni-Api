@@ -27,7 +27,6 @@ namespace Omnimarket.Api.Models.Dtos.Produtos.Lojas
     {
         public int ProdutoId { get; set; }
         public string Nome { get; set; } = string.Empty;
-        public string Sku { get; set; } = string.Empty;
         public int QuantidadeVendida { get; set; }
         public decimal ReceitaBruta { get; set; }
     }

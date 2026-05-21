@@ -16,6 +16,7 @@ namespace Omnimarket.Api.Data
         public DbSet<Endereco> TBL_ENDERECO { get; set; }
         public DbSet<Telefone> TBL_TELEFONE { get; set; }
         public DbSet<Produto> TBL_PRODUTO { get; set; }
+        public DbSet<HistoricoProduto> TBL_HISTORICO_PRODUTO { get; set; }
         public DbSet<AvaliacaoProduto> TBL_AVALIACAO_PRODUTO { get; set; }
         public DbSet<ProdutoMidia> ProdutoMidia => Set<ProdutoMidia>();
         public DbSet<Pedido> TBL_PEDIDO { get; set; }
@@ -35,6 +36,7 @@ namespace Omnimarket.Api.Data
             modelBuilder.Entity<Endereco>().ToTable("TBL_ENDERECO");
             modelBuilder.Entity<Telefone>().ToTable("TBL_TELEFONE");
             modelBuilder.Entity<Produto>().ToTable("TBL_PRODUTOS");
+            modelBuilder.Entity<HistoricoProduto>().ToTable("TBL_HISTORICO_PRODUTO");
             modelBuilder.Entity<AvaliacaoProduto>().ToTable("TBL_AVALIACAO_PRODUTO");
             modelBuilder.Entity<ProdutoMidia>().ToTable("TBL_PRODUTOS_MIDIA");
             modelBuilder.Entity<Pedido>().ToTable("TBL_PEDIDO");
@@ -98,9 +100,9 @@ namespace Omnimarket.Api.Data
             modelBuilder.Entity<Usuario>().HasIndex(x => x.Cpf).IsUnique();
             modelBuilder.Entity<Usuario>().HasIndex(x => x.Email).IsUnique();
             modelBuilder.Entity<Carrinho>().HasIndex(c => c.UsuarioId).IsUnique();
-            modelBuilder.Entity<Produto>().HasIndex(p => new { p.LojaId, p.Sku }).IsUnique();
+            modelBuilder.Entity<HistoricoProduto>().HasIndex(h => new { h.LojaId, h.DataAlteracao });
+            modelBuilder.Entity<HistoricoProduto>().HasIndex(h => new { h.ProdutoId, h.DataAlteracao });
             modelBuilder.Entity<Loja>().HasIndex(l => l.UsuarioId).IsUnique();
-            modelBuilder.Entity<Loja>().HasIndex(l => l.Slug).IsUnique();
             modelBuilder.Entity<Loja>().HasIndex(l => new { l.TipoDocumentoFiscal, l.DocumentoFiscal }).IsUnique();
             modelBuilder.Entity<FormaPagamento>().HasIndex(f => f.Nome).IsUnique();
             modelBuilder.Entity<PlanoPagamento>().HasIndex(p => p.PedidoId).IsUnique();
@@ -131,11 +133,27 @@ namespace Omnimarket.Api.Data
                 .HasMaxLength(100);
 
             modelBuilder.Entity<Produto>()
-                .Property(p => p.Sku)
+                .Property(p => p.Descricao)
+                .HasMaxLength(1000);
+
+            modelBuilder.Entity<HistoricoProduto>()
+                .Property(h => h.TipoAlteracao)
                 .HasMaxLength(40);
 
-            modelBuilder.Entity<Produto>()
-                .Property(p => p.Descricao)
+            modelBuilder.Entity<HistoricoProduto>()
+                .Property(h => h.NomeProdutoSnapshot)
+                .HasMaxLength(100);
+
+            modelBuilder.Entity<HistoricoProduto>()
+                .Property(h => h.CategoriaProdutoSnapshot)
+                .HasMaxLength(100);
+
+            modelBuilder.Entity<HistoricoProduto>()
+                .Property(h => h.DescricaoAnterior)
+                .HasMaxLength(1000);
+
+            modelBuilder.Entity<HistoricoProduto>()
+                .Property(h => h.DescricaoNova)
                 .HasMaxLength(1000);
 
             modelBuilder.Entity<Loja>()
@@ -161,6 +179,12 @@ namespace Omnimarket.Api.Data
                 .WithOne(a => a.Produto)
                 .HasForeignKey(a => a.ProdutoId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<HistoricoProduto>()
+                .HasOne(h => h.Produto)
+                .WithMany()
+                .HasForeignKey(h => h.ProdutoId)
+                .OnDelete(DeleteBehavior.NoAction);
 
             modelBuilder.Entity<Loja>()
                 .HasMany(l => l.Avaliacoes)

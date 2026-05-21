@@ -13,10 +13,6 @@ namespace Omnimarket.Api.Models.Dtos.Produtos
         [StringLength(100)]
         public string Categoria { get; set; } = string.Empty;
 
-        [Required]
-        [StringLength(40)]
-        public string Sku { get; set; } = string.Empty;
-
         [Range(0.01, double.MaxValue, ErrorMessage = "Preco deve ser maior que 0.")]
         public decimal Preco { get; set; }
 

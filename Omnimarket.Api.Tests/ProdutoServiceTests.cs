@@ -15,7 +15,6 @@ public class ProdutoServiceTests
             {
                 Nome = "Mouse Gamer",
                 Categoria = "Perifericos",
-                Sku = "MOUSE-001",
                 Preco = 129.90m,
                 Estoque = 5,
                 Descricao = "Produto de teste"
@@ -37,7 +36,6 @@ public class ProdutoServiceTests
             {
                 Nome = "Teclado Mecanico",
                 Categoria = "Perifericos",
-                Sku = "TECLADO-001",
                 Preco = 249.90m,
                 Estoque = 8,
                 Descricao = "Produto de teste"
@@ -53,7 +51,6 @@ public class ProdutoServiceTests
         Assert.Equal(loja.Id, produtoSalvo.LojaId);
         Assert.Equal("Perifericos", produtoSalvo.Categoria);
         Assert.Equal(loja.NomeFantasia, produto.NomeLoja);
-        Assert.Equal(loja.Slug, produto.SlugLoja);
         Assert.Equal(loja.Id, produto.LojaId);
     }
 
@@ -68,7 +65,6 @@ public class ProdutoServiceTests
             new ProdutoCriacaoDto
             {
                 Nome = "Produto Sem Categoria",
-                Sku = "SEM-CAT-001",
                 Preco = 99.90m,
                 Estoque = 2
             },
@@ -89,7 +85,6 @@ public class ProdutoServiceTests
             {
                 Nome = "Camiseta Basic",
                 Categoria = "Camisetas",
-                Sku = "CAM-BASIC",
                 Preco = 59.90m,
                 Estoque = 7,
                 Descricao = "Produto simples"
@@ -114,7 +109,6 @@ public class ProdutoServiceTests
             {
                 Nome = "Notebook Pro",
                 Categoria = "Notebooks",
-                Sku = "NOTE-PRO",
                 Preco = 5200m,
                 Estoque = 3,
                 Descricao = "Modelo premium"
@@ -126,7 +120,6 @@ public class ProdutoServiceTests
             {
                 Nome = "Notebook Lite",
                 Categoria = "Notebooks",
-                Sku = "NOTE-LITE",
                 Preco = 3100m,
                 Estoque = 5,
                 Descricao = "Linha de entrada"
@@ -143,12 +136,11 @@ public class ProdutoServiceTests
 
         Assert.Single(resultado.Items);
         Assert.Equal(notebookPro.Id, resultado.Items.Single().Id);
-        Assert.Equal(notebookPro.Sku, resultado.Items.Single().Sku);
         Assert.Equal(5200m, resultado.Items.Single().Preco);
     }
 
     [Fact]
-    public async Task CreateAsync_DevePermitirMesmoSkuEmLojasDiferentes()
+    public async Task CreateAsync_DevePermitirMesmoNomeEmLojasDiferentes()
     {
         using var fixture = new ServiceTestFixture();
         var vendedorA = await fixture.CriarUsuarioAsync("seller-a");
@@ -160,9 +152,8 @@ public class ProdutoServiceTests
         var produtoA = await fixture.ProdutoService.CreateAsync(
             new ProdutoCriacaoDto
             {
-                Nome = "Camiseta A",
+                Nome = "Camiseta Basica",
                 Categoria = "Roupas",
-                Sku = "SKU-IGUAL-001",
                 Preco = 49.90m,
                 Estoque = 5
             },
@@ -171,16 +162,109 @@ public class ProdutoServiceTests
         var produtoB = await fixture.ProdutoService.CreateAsync(
             new ProdutoCriacaoDto
             {
-                Nome = "Camiseta B",
+                Nome = "Camiseta Basica",
                 Categoria = "Roupas",
-                Sku = "SKU-IGUAL-001",
                 Preco = 59.90m,
                 Estoque = 3
             },
             vendedorB.Id);
 
         Assert.NotEqual(produtoA.LojaId, produtoB.LojaId);
-        Assert.Equal("SKU-IGUAL-001", produtoA.Sku);
-        Assert.Equal("SKU-IGUAL-001", produtoB.Sku);
+        Assert.Equal("Camiseta Basica", produtoA.Nome);
+        Assert.Equal("Camiseta Basica", produtoB.Nome);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_DeveAlterarApenasPrecoEDescricaoNoEditarComum()
+    {
+        using var fixture = new ServiceTestFixture();
+        var vendedor = await fixture.CriarUsuarioAsync("seller-update");
+        var produto = await fixture.CriarProdutoAsync(vendedor.Id, preco: 50m, estoque: 10);
+
+        var atualizado = await fixture.ProdutoService.UpdateAsync(
+            produto.Id,
+            new ProdutoAtualizarDto
+            {
+                Preco = 79.90m,
+                Descricao = "Descricao revisada"
+            },
+            vendedor.Id);
+
+        fixture.Context.ChangeTracker.Clear();
+
+        var produtoSalvo = await fixture.Context.TBL_PRODUTO.SingleAsync(p => p.Id == produto.Id);
+        var historico = await fixture.Context.TBL_HISTORICO_PRODUTO.SingleAsync(h => h.ProdutoId == produto.Id);
+
+        Assert.True(atualizado);
+        Assert.Equal(produto.Nome, produtoSalvo.Nome);
+        Assert.Equal(produto.Categoria, produtoSalvo.Categoria);
+        Assert.Equal(79.90m, produtoSalvo.Preco);
+        Assert.Equal(10, produtoSalvo.Estoque);
+        Assert.Equal("Descricao revisada", produtoSalvo.Descricao);
+        Assert.Equal(StatusProduto.Publicado, produtoSalvo.StatusPublicacao);
+
+        Assert.Equal("EdicaoDados", historico.TipoAlteracao);
+        Assert.Equal(produto.LojaId, historico.LojaId);
+        Assert.Equal(vendedor.Id, historico.UsuarioResponsavelId);
+        Assert.Equal(50m, historico.PrecoAnterior);
+        Assert.Equal(79.90m, historico.PrecoNovo);
+        Assert.Equal("Produto usado para teste automatizado.", historico.DescricaoAnterior);
+        Assert.Equal("Descricao revisada", historico.DescricaoNova);
+        Assert.Null(historico.EstoqueAnterior);
+        Assert.Null(historico.EstoqueNovo);
+    }
+
+    [Fact]
+    public async Task AtualizarEstoqueAsync_DeveRegistrarHistoricoSeparado()
+    {
+        using var fixture = new ServiceTestFixture();
+        var vendedor = await fixture.CriarUsuarioAsync("seller-stock");
+        var produto = await fixture.CriarProdutoAsync(vendedor.Id, preco: 50m, estoque: 10);
+
+        var atualizado = await fixture.ProdutoService.AtualizarEstoqueAsync(
+            produto.Id,
+            new ProdutoAtualizarEstoqueDto
+            {
+                Estoque = 4
+            },
+            vendedor.Id);
+
+        fixture.Context.ChangeTracker.Clear();
+
+        var produtoSalvo = await fixture.Context.TBL_PRODUTO.SingleAsync(p => p.Id == produto.Id);
+        var historico = await fixture.Context.TBL_HISTORICO_PRODUTO.SingleAsync(h => h.ProdutoId == produto.Id);
+
+        Assert.True(atualizado);
+        Assert.Equal(4, produtoSalvo.Estoque);
+        Assert.Equal("AtualizacaoEstoque", historico.TipoAlteracao);
+        Assert.Equal(10, historico.EstoqueAnterior);
+        Assert.Equal(4, historico.EstoqueNovo);
+        Assert.Null(historico.PrecoAnterior);
+        Assert.Null(historico.PrecoNovo);
+    }
+
+    [Fact]
+    public async Task DeleteAsync_DeveFazerExclusaoLogicaERegistrarHistorico()
+    {
+        using var fixture = new ServiceTestFixture();
+        var vendedor = await fixture.CriarUsuarioAsync("seller-delete");
+        var produto = await fixture.CriarProdutoAsync(vendedor.Id, preco: 50m, estoque: 10);
+
+        var removido = await fixture.ProdutoService.DeleteAsync(produto.Id, vendedor.Id);
+
+        fixture.Context.ChangeTracker.Clear();
+
+        var produtoSalvo = await fixture.Context.TBL_PRODUTO.SingleAsync(p => p.Id == produto.Id);
+        var historico = await fixture.Context.TBL_HISTORICO_PRODUTO.SingleAsync(h => h.ProdutoId == produto.Id);
+
+        Assert.True(removido);
+        Assert.Equal(StatusProduto.Desativado, produtoSalvo.StatusPublicacao);
+        Assert.Equal("DesativacaoLogica", historico.TipoAlteracao);
+        Assert.Equal(50m, historico.PrecoAnterior);
+        Assert.Equal(50m, historico.PrecoNovo);
+        Assert.Equal(10, historico.EstoqueAnterior);
+        Assert.Equal(10, historico.EstoqueNovo);
+        Assert.Equal("Produto usado para teste automatizado.", historico.DescricaoAnterior);
+        Assert.Equal("Produto usado para teste automatizado.", historico.DescricaoNova);
     }
 }

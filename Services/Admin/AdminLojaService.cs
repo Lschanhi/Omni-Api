@@ -32,7 +32,6 @@ namespace Omnimarket.Api.Services
                 var termo = $"%{busca.Trim()}%";
                 query = query.Where(l =>
                     EF.Functions.Like(l.NomeFantasia, termo) ||
-                    EF.Functions.Like(l.Slug, termo) ||
                     (l.Endereco != null && EF.Functions.Like(l.Endereco.Cidade, termo)) ||
                     EF.Functions.Like(l.Usuario.Nome, termo) ||
                     EF.Functions.Like(l.Usuario.Email, termo));
@@ -48,7 +47,6 @@ namespace Omnimarket.Api.Services
                     Id = l.Id,
                     UsuarioId = l.UsuarioId,
                     NomeFantasia = l.NomeFantasia,
-                    Slug = l.Slug,
                     Cidade = l.Endereco != null ? l.Endereco.Cidade : null,
                     Uf = l.Endereco != null ? l.Endereco.Uf : null,
                     Ativa = l.Ativa,

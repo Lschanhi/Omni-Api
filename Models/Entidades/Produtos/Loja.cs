@@ -7,7 +7,6 @@ using Omnimarket.Api.Models.Enum;
 namespace Omnimarket.Api.Models.Entidades
 {
     [Index(nameof(UsuarioId), IsUnique = true)]
-    [Index(nameof(Slug), IsUnique = true)]
     [Index(nameof(TipoDocumentoFiscal), nameof(DocumentoFiscal), IsUnique = true)]
     public class Loja
     {
@@ -23,10 +22,6 @@ namespace Omnimarket.Api.Models.Entidades
         [Required]
         [StringLength(120)]
         public string NomeFantasia { get; set; } = string.Empty;
-
-        [Required]
-        [StringLength(160)]
-        public string Slug { get; set; } = string.Empty;
 
         [Required]
         public TipoDocumentoFiscalLoja TipoDocumentoFiscal { get; set; }
