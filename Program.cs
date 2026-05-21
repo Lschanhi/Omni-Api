@@ -20,7 +20,7 @@ builder.Logging.AddDebug();
 // Permite sobreposicao local de segredos sem versionar no repositorio.
 builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
 
-var connectionString = builder.Configuration.GetConnectionString("ConexaoLocal");
+var connectionString = builder.Configuration.GetConnectionString("ConexaoAzure");
 if (string.IsNullOrWhiteSpace(connectionString) ||
     connectionString.Contains("SEU_SERVIDOR", StringComparison.OrdinalIgnoreCase))
 {
