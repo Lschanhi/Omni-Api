@@ -114,7 +114,8 @@ if (allowedOrigins is null || allowedOrigins.Length == 0)
         "http://localhost:5173",
         "https://localhost:5173",
         "http://127.0.0.1:5173",
-        "https://127.0.0.1:5173"
+        "https://127.0.0.1:5173",
+        "https://omnimarket-web.azurewebsites.net"
     };
 }
 
@@ -152,11 +153,10 @@ app.UseCors("FrontendLocal");
 app.UseAuthentication();
 app.UseAuthorization();
 
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
+
+app.UseSwagger();
+app.UseSwaggerUI();
+
 
 // Mapeia as rotas declaradas nos controllers.
 app.MapControllers();
