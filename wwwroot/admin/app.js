@@ -207,7 +207,7 @@ async function carregarUsuarios() {
 
 async function renderLojas() {
     content.innerHTML = renderToolbar("lojas", `
-        <label>Busca <input id="lojas-busca" type="search" placeholder="Loja, slug ou responsavel"></label>
+        <label>Busca <input id="lojas-busca" type="search" placeholder="Loja ou responsavel"></label>
         <label>Status
             <select id="lojas-status">
                 <option value="">Todas</option>
