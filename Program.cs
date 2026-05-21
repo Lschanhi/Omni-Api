@@ -147,11 +147,12 @@ await AdminSeedService.AplicarAsync(app.Services);
 
 // Pipeline HTTP da aplicacao.
 app.UseHttpsRedirection();
-app.UseDefaultFiles();
-app.UseStaticFiles();
 app.UseCors("FrontendLocal");
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseDefaultFiles();
+app.UseStaticFiles();
+
 
 
 app.UseSwagger();
