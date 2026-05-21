@@ -142,6 +142,7 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
+app.UseDeveloperExceptionPage();
 
 await AdminSeedService.AplicarAsync(app.Services);
 
