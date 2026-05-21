@@ -34,7 +34,6 @@ namespace Omnimarket.Api.Services
                 query = query.Where(p =>
                     EF.Functions.Like(p.Nome, termo) ||
                     EF.Functions.Like(p.Categoria, termo) ||
-                    EF.Functions.Like(p.Sku, termo) ||
                     EF.Functions.Like(p.Loja.Usuario.Nome, termo) ||
                     EF.Functions.Like(p.Loja.NomeFantasia, termo));
             }
@@ -52,7 +51,6 @@ namespace Omnimarket.Api.Services
                     Id = p.Id,
                     Nome = p.Nome,
                     Categoria = p.Categoria,
-                    Sku = p.Sku,
                     Preco = p.Preco,
                     Estoque = p.Estoque,
                     Disponivel = p.StatusPublicacao == StatusProduto.Publicado && p.Estoque > 0,

@@ -9,9 +9,6 @@ namespace Omnimarket.Api.Models.Dtos.Produtos.Lojas
         [StringLength(120, MinimumLength = 3)]
         public string NomeFantasia { get; set; } = string.Empty;
 
-        [StringLength(160)]
-        public string? Slug { get; set; }
-
         [Required]
         public TipoDocumentoFiscalLoja TipoDocumentoFiscal { get; set; }
 

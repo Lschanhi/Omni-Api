@@ -40,15 +40,13 @@ namespace Omnimarket.Api.Services
             };
         }
 
-        public async Task<PageResult<ProdutoAvaliacaoLeituraDto>> ListarPorLojaAsync(string slugLoja, int page = 1, int pageSize = 10)
+        public async Task<PageResult<ProdutoAvaliacaoLeituraDto>> ListarPorLojaAsync(int lojaId, int page = 1, int pageSize = 10)
         {
             page = page < 1 ? 1 : page;
             pageSize = Math.Clamp(pageSize, 1, 50);
 
-            var slug = slugLoja.Trim().ToLowerInvariant();
-
             var query = BaseQuery()
-                .Where(a => a.Loja.Slug == slug);
+                .Where(a => a.LojaId == lojaId);
 
             var total = await query.CountAsync();
             var avaliacoes = await query
@@ -203,7 +201,6 @@ namespace Omnimarket.Api.Services
                 NomeProduto = avaliacao.Produto.Nome,
                 LojaId = avaliacao.LojaId,
                 NomeLoja = avaliacao.Loja.NomeFantasia,
-                SlugLoja = avaliacao.Loja.Slug,
                 PedidoId = avaliacao.PedidoId,
                 UsuarioId = avaliacao.UsuarioId,
                 NomeComprador = FormatarNomeComprador(avaliacao.Usuario),

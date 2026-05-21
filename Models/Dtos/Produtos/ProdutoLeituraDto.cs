@@ -7,7 +7,6 @@ namespace Omnimarket.Api.Models.Dtos.Produtos
         public int Id { get; set; }
         public string Nome { get; set; } = string.Empty;
         public string Categoria { get; set; } = string.Empty;
-        public string Sku { get; set; } = string.Empty;
         public decimal Preco { get; set; }
         public int Estoque { get; set; }
         public bool Disponivel { get; set; }
@@ -19,7 +18,6 @@ namespace Omnimarket.Api.Models.Dtos.Produtos
         public DateTimeOffset? DtAtualizacao { get; set; }
         public int LojaId { get; set; }
         public string NomeLoja { get; set; } = string.Empty;
-        public string SlugLoja { get; set; } = string.Empty;
         public List<string> Imagens { get; set; } = new();
     }
 }

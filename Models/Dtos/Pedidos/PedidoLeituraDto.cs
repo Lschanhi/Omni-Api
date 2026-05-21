@@ -27,10 +27,8 @@ namespace Omnimarket.Api.Models.Dtos.Pedidos
         public int Id { get; set; }
         public int ProdutoId { get; set; }
         public string NomeProduto { get; set; } = string.Empty;
-        public string SkuProduto { get; set; } = string.Empty;
         public int LojaId { get; set; }
         public string NomeLoja { get; set; } = string.Empty;
-        public string SlugLoja { get; set; } = string.Empty;
         public int Quantidade { get; set; }
         public decimal PrecoUnitario { get; set; }
         public decimal ValorTotal { get; set; }

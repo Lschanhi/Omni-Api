@@ -55,7 +55,7 @@ namespace Omnimarket.Api.Controllers
             }
         }
 
-        // Atualiza os dados principais do produto simples do usuario logado.
+        // Atualiza apenas preco e descricao do produto do usuario logado.
         [HttpPut("{id:int}")]
         [Authorize]
         public async Task<IActionResult> Put(int id, [FromBody] ProdutoAtualizarDto dto)

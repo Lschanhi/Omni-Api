@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Omnimarket.Api.Data;
 
@@ -11,9 +12,11 @@ using Omnimarket.Api.Data;
 namespace OmniMarket.API.Migrations
 {
     [DbContext(typeof(DataContext))]
-    partial class DataContextModelSnapshot : ModelSnapshot
+    [Migration("20260521042920_RestringeEdicaoProdutoHistoricoLoja")]
+    partial class RestringeEdicaoProdutoHistoricoLoja
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -297,6 +300,11 @@ namespace OmniMarket.API.Migrations
                     b.Property<int>("ProdutoId")
                         .HasColumnType("int");
 
+                    b.Property<string>("SkuProdutoSnapshot")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("varchar");
+
                     b.Property<string>("TipoAlteracao")
                         .IsRequired()
                         .HasMaxLength(40)
@@ -407,6 +415,11 @@ namespace OmniMarket.API.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("varchar");
 
+                    b.Property<string>("Slug")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("varchar");
+
                     b.Property<int?>("TelefoneId")
                         .HasColumnType("int");
 
@@ -423,6 +436,9 @@ namespace OmniMarket.API.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("EnderecoId");
+
+                    b.HasIndex("Slug")
+                        .IsUnique();
 
                     b.HasIndex("TelefoneId");
 
@@ -629,6 +645,11 @@ namespace OmniMarket.API.Migrations
                     b.Property<decimal>("Preco")
                         .HasColumnType("decimal(18,2)");
 
+                    b.Property<string>("Sku")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("varchar");
+
                     b.Property<string>("StatusPublicacao")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
@@ -638,7 +659,8 @@ namespace OmniMarket.API.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("LojaId");
+                    b.HasIndex("LojaId", "Sku")
+                        .IsUnique();
 
                     b.ToTable("TBL_PRODUTOS", (string)null);
                 });

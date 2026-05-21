@@ -37,7 +37,7 @@ public class LojaServiceTests
         Assert.Equal(TipoDocumentoFiscalLoja.CPF, lojaSalva.TipoDocumentoFiscal);
         Assert.Equal("52998224725", lojaSalva.DocumentoFiscal);
         Assert.Equal("529.982.247-25", loja.DocumentoFiscalFormatado);
-        Assert.Equal("atelie-da-ana", loja.Slug);
+        Assert.Equal("Atelie da Ana", loja.NomeFantasia);
         Assert.NotNull(lojaSalva.Endereco);
         Assert.NotNull(lojaSalva.Telefone);
         Assert.NotEqual(enderecoUsuario.Id, lojaSalva.EnderecoId);
@@ -106,6 +106,20 @@ public class LojaServiceTests
     }
 
     [Fact]
+    public async Task ObterPorIdAsync_DeveRetornarLojaAtivaPeloIdentificador()
+    {
+        using var fixture = new ServiceTestFixture();
+        var usuario = await fixture.CriarUsuarioAsync("loja-publica");
+        var lojaCriada = await fixture.CriarLojaAsync(usuario.Id, nomeFantasia: "Loja publica");
+
+        var loja = await fixture.LojaService.ObterPorIdAsync(lojaCriada.Id);
+
+        Assert.NotNull(loja);
+        Assert.Equal(lojaCriada.Id, loja!.Id);
+        Assert.Equal("Loja publica", loja.NomeFantasia);
+    }
+
+    [Fact]
     public async Task CriarMinhaLojaAsync_DeveRejeitarDocumentoFiscalInvalido()
     {
         using var fixture = new ServiceTestFixture();
@@ -164,7 +178,6 @@ public class LojaServiceTests
             new LojaAtualizacaoDto
             {
                 NomeFantasia = "Loja Atualizada",
-                Slug = "loja-atualizada",
                 TipoDocumentoFiscal = TipoDocumentoFiscalLoja.CPF,
                 DocumentoFiscal = usuario.Cpf,
                 EmailContato = "contato@lojaatualizada.com",
@@ -184,7 +197,6 @@ public class LojaServiceTests
 
         Assert.NotNull(lojaAtualizada);
         Assert.Equal("Loja Atualizada", lojaSalva.NomeFantasia);
-        Assert.Equal("loja-atualizada", lojaSalva.Slug);
         Assert.Equal(
             DocumentoFiscalFormatter.Formatar(TipoDocumentoFiscalLoja.CPF, usuario.Cpf),
             lojaAtualizada!.DocumentoFiscalFormatado);

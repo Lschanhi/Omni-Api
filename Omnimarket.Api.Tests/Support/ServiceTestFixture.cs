@@ -176,7 +176,6 @@ internal sealed class ServiceTestFixture : IDisposable
     {
         var sequencia = _sequencia++;
         var nomeBase = string.IsNullOrWhiteSpace(nomeFantasia) ? $"Loja {sequencia}" : nomeFantasia.Trim();
-        var slug = $"{NormalizarPrefixo(nomeBase)}-{usuarioId}-{sequencia}";
         var usuario = await Context.TBL_USUARIO.SingleAsync(u => u.Id == usuarioId);
         var enderecoLoja = await CriarEnderecoAsync(usuarioId, principal: false);
         var telefoneLoja = await CriarTelefoneAsync(usuarioId, principal: false, numeroE164: $"+55119{sequencia:D8}");
@@ -185,7 +184,6 @@ internal sealed class ServiceTestFixture : IDisposable
         {
             UsuarioId = usuarioId,
             NomeFantasia = nomeBase,
-            Slug = slug,
             TipoDocumentoFiscal = TipoDocumentoFiscalLoja.CPF,
             DocumentoFiscal = usuario.Cpf,
             Descricao = "Loja criada para teste automatizado.",
@@ -255,7 +253,6 @@ internal sealed class ServiceTestFixture : IDisposable
             Loja = loja,
             Nome = $"Produto {sequencia}",
             Categoria = "Teste",
-            Sku = $"SKU-TESTE-{sequencia:D4}",
             Preco = preco,
             Estoque = estoque,
             Descricao = "Produto usado para teste automatizado.",

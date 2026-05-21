@@ -10,6 +10,9 @@ namespace Omnimarket.Api.Services
     public class ProdutoService : IProdutoService
     {
         private readonly DataContext _context;
+        private const string TipoAlteracaoEdicaoDados = "EdicaoDados";
+        private const string TipoAlteracaoEstoque = "AtualizacaoEstoque";
+        private const string TipoAlteracaoDesativacao = "DesativacaoLogica";
 
         public ProdutoService(DataContext context)
         {
@@ -52,16 +55,10 @@ namespace Omnimarket.Api.Services
             if (!loja.Ativa)
                 throw new Exception("Sua loja precisa estar ativa para cadastrar produtos.");
 
-            var sku = NormalizarSku(dto.Sku);
-
-            if (await _context.TBL_PRODUTO.AnyAsync(p => p.LojaId == loja.Id && p.Sku == sku))
-                throw new Exception("Ja existe um produto com esse SKU nesta loja.");
-
             var produto = new Produto
             {
                 Nome = NormalizarTextoObrigatorio(dto.Nome, "Informe um nome valido para o produto."),
                 Categoria = NormalizarTextoObrigatorio(dto.Categoria, "Informe uma categoria valida para o produto."),
-                Sku = sku,
                 Preco = dto.Preco,
                 Estoque = dto.Estoque,
                 Descricao = LimparOpcional(dto.Descricao),
@@ -83,7 +80,6 @@ namespace Omnimarket.Api.Services
         {
             var produto = await _context.TBL_PRODUTO
                 .Include(p => p.Loja)
-                .Include(p => p.Midias)
                 .FirstOrDefaultAsync(p => p.Id == id);
 
             if (produto == null)
@@ -92,22 +88,42 @@ namespace Omnimarket.Api.Services
             if (produto.Loja.UsuarioId != usuarioId)
                 throw new UnauthorizedAccessException("Voce nao pode editar este produto.");
 
-            var sku = NormalizarSku(dto.Sku);
+            if (produto.StatusPublicacao == StatusProduto.Desativado)
+                throw new Exception("Produto desativado nao pode ser alterado pelo editar comum.");
 
-            if (await _context.TBL_PRODUTO.AnyAsync(p => p.Id != id && p.LojaId == produto.LojaId && p.Sku == sku))
-                throw new Exception("Ja existe um produto com esse SKU nesta loja.");
+            var descricaoNormalizada = dto.Descricao != null
+                ? LimparOpcional(dto.Descricao)
+                : produto.Descricao;
 
-            produto.Nome = NormalizarTextoObrigatorio(dto.Nome, "Informe um nome valido para o produto.");
-            produto.Categoria = NormalizarTextoObrigatorio(dto.Categoria, "Informe uma categoria valida para o produto.");
-            produto.Sku = sku;
-            produto.Preco = dto.Preco;
-            produto.Estoque = dto.Estoque;
-            produto.Descricao = LimparOpcional(dto.Descricao);
-            produto.StatusPublicacao = dto.StatusPublicacao;
-            produto.DtAtualizacao = DateTimeOffset.UtcNow;
+            var alterouPreco = dto.Preco.HasValue && produto.Preco != dto.Preco.Value;
+            var alterouDescricao = dto.Descricao != null && produto.Descricao != descricaoNormalizada;
 
-            if (dto.Imagens != null)
-                SincronizarImagens(produto, dto.Imagens);
+            if (!alterouPreco && !alterouDescricao)
+                return true;
+
+            decimal? precoAnterior = alterouPreco ? produto.Preco : null;
+            decimal? precoNovo = alterouPreco ? dto.Preco!.Value : null;
+            var descricaoAnterior = alterouDescricao ? produto.Descricao : null;
+            var descricaoNova = alterouDescricao ? descricaoNormalizada : null;
+
+            if (alterouPreco)
+                produto.Preco = dto.Preco!.Value;
+
+            if (dto.Descricao != null)
+                produto.Descricao = descricaoNormalizada;
+
+            var dataAlteracao = DateTimeOffset.UtcNow;
+            produto.DtAtualizacao = dataAlteracao;
+
+            RegistrarHistoricoProduto(
+                produto,
+                usuarioId,
+                TipoAlteracaoEdicaoDados,
+                dataAlteracao,
+                precoAnterior: precoAnterior,
+                precoNovo: precoNovo,
+                descricaoAnterior: descricaoAnterior,
+                descricaoNova: descricaoNova);
 
             await _context.SaveChangesAsync();
 
@@ -129,8 +145,21 @@ namespace Omnimarket.Api.Services
             if (produto.StatusPublicacao == StatusProduto.Desativado)
                 throw new Exception("Produto desativado nao pode ter estoque alterado.");
 
+            if (produto.Estoque == dto.Estoque)
+                return true;
+
+            var estoqueAnterior = produto.Estoque;
             produto.Estoque = dto.Estoque;
-            produto.DtAtualizacao = DateTimeOffset.UtcNow;
+            var dataAlteracao = DateTimeOffset.UtcNow;
+            produto.DtAtualizacao = dataAlteracao;
+
+            RegistrarHistoricoProduto(
+                produto,
+                usuarioId,
+                TipoAlteracaoEstoque,
+                dataAlteracao,
+                estoqueAnterior: estoqueAnterior,
+                estoqueNovo: dto.Estoque);
 
             await _context.SaveChangesAsync();
 
@@ -149,8 +178,24 @@ namespace Omnimarket.Api.Services
             if (produto.Loja.UsuarioId != usuarioId)
                 throw new UnauthorizedAccessException("Voce nao pode excluir este produto.");
 
+            if (produto.StatusPublicacao == StatusProduto.Desativado)
+                return true;
+
+            var dataAlteracao = DateTimeOffset.UtcNow;
             produto.StatusPublicacao = StatusProduto.Desativado;
-            produto.DtAtualizacao = DateTimeOffset.UtcNow;
+            produto.DtAtualizacao = dataAlteracao;
+
+            RegistrarHistoricoProduto(
+                produto,
+                usuarioId,
+                TipoAlteracaoDesativacao,
+                dataAlteracao,
+                precoAnterior: produto.Preco,
+                precoNovo: produto.Preco,
+                estoqueAnterior: produto.Estoque,
+                estoqueNovo: produto.Estoque,
+                descricaoAnterior: produto.Descricao,
+                descricaoNova: produto.Descricao);
 
             await _context.SaveChangesAsync();
 
@@ -281,14 +326,6 @@ namespace Omnimarket.Api.Services
                 .ToList();
         }
 
-        private static string NormalizarSku(string sku)
-        {
-            if (string.IsNullOrWhiteSpace(sku))
-                throw new Exception("Informe um SKU valido para o produto.");
-
-            return sku.Trim().ToUpperInvariant();
-        }
-
         private static string NormalizarTextoObrigatorio(string? valor, string mensagemErro)
         {
             if (string.IsNullOrWhiteSpace(valor))
@@ -305,6 +342,36 @@ namespace Omnimarket.Api.Services
             return valor.Trim();
         }
 
+        private void RegistrarHistoricoProduto(
+            Produto produto,
+            int usuarioId,
+            string tipoAlteracao,
+            DateTimeOffset dataAlteracao,
+            decimal? precoAnterior = null,
+            decimal? precoNovo = null,
+            int? estoqueAnterior = null,
+            int? estoqueNovo = null,
+            string? descricaoAnterior = null,
+            string? descricaoNova = null)
+        {
+            _context.TBL_HISTORICO_PRODUTO.Add(new HistoricoProduto
+            {
+                ProdutoId = produto.Id,
+                LojaId = produto.LojaId,
+                UsuarioResponsavelId = usuarioId,
+                TipoAlteracao = tipoAlteracao,
+                NomeProdutoSnapshot = produto.Nome,
+                CategoriaProdutoSnapshot = produto.Categoria,
+                PrecoAnterior = precoAnterior,
+                PrecoNovo = precoNovo,
+                EstoqueAnterior = estoqueAnterior,
+                EstoqueNovo = estoqueNovo,
+                DescricaoAnterior = descricaoAnterior,
+                DescricaoNova = descricaoNova,
+                DataAlteracao = dataAlteracao
+            });
+        }
+
         private static ProdutoLeituraDto MapToDto(Produto produto)
         {
             return new ProdutoLeituraDto
@@ -312,7 +379,6 @@ namespace Omnimarket.Api.Services
                 Id = produto.Id,
                 Nome = produto.Nome,
                 Categoria = produto.Categoria,
-                Sku = produto.Sku,
                 Preco = produto.Preco,
                 Estoque = produto.Estoque,
                 Disponivel = produto.Disponivel,
@@ -324,7 +390,6 @@ namespace Omnimarket.Api.Services
                 DtAtualizacao = produto.DtAtualizacao,
                 LojaId = produto.LojaId,
                 NomeLoja = produto.Loja != null ? produto.Loja.NomeFantasia : string.Empty,
-                SlugLoja = produto.Loja != null ? produto.Loja.Slug : string.Empty,
                 Imagens = produto.Midias
                     .OrderBy(m => m.Ordem)
                     .Select(m => m.Url)

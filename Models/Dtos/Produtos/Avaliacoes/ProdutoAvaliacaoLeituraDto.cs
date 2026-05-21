@@ -7,7 +7,6 @@ namespace Omnimarket.Api.Models.Dtos.Produtos.Avaliacoes
         public string NomeProduto { get; set; } = string.Empty;
         public int LojaId { get; set; }
         public string NomeLoja { get; set; } = string.Empty;
-        public string SlugLoja { get; set; } = string.Empty;
         public int PedidoId { get; set; }
         public int UsuarioId { get; set; }
         public string NomeComprador { get; set; } = string.Empty;

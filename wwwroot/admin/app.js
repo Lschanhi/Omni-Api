@@ -232,7 +232,6 @@ async function carregarLojas() {
         <tr>
             <td>${loja.id}</td>
             <td>${escapeHtml(loja.nomeFantasia)}</td>
-            <td>${escapeHtml(loja.slug)}</td>
             <td>${escapeHtml(loja.nomeResponsavel)}</td>
             <td>${loja.ativa ? renderBadge("Ativa", "ok") : renderBadge("Inativa", "warn")}</td>
             <td>${loja.totalProdutos}</td>
@@ -241,7 +240,7 @@ async function carregarLojas() {
         </tr>
     `).join("");
 
-    fillTable("lojas-table", ["Id", "Loja", "Slug", "Responsavel", "Status", "Produtos", "Publicados", "Acao"], rows);
+    fillTable("lojas-table", ["Id", "Loja", "Responsavel", "Status", "Produtos", "Publicados", "Acao"], rows);
 
     document.querySelectorAll("[data-store-status]").forEach((button) => {
         button.addEventListener("click", async () => {
@@ -258,7 +257,7 @@ async function carregarLojas() {
 
 async function renderProdutos() {
     content.innerHTML = renderToolbar("produtos", `
-        <label>Busca <input id="produtos-busca" type="search" placeholder="Nome, SKU, loja ou categoria"></label>
+        <label>Busca <input id="produtos-busca" type="search" placeholder="Nome, loja ou categoria"></label>
         <label>Status
             <select id="produtos-status">
                 <option value="">Todos</option>
@@ -282,7 +281,6 @@ async function carregarProdutos() {
         <tr>
             <td>${produto.id}</td>
             <td>${escapeHtml(produto.nome)}</td>
-            <td>${escapeHtml(produto.sku)}</td>
             <td>${escapeHtml(produto.nomeLoja || produto.nomeVendedor)}</td>
             <td>${money(produto.preco)}</td>
             <td>${produto.estoque}</td>
@@ -291,7 +289,7 @@ async function carregarProdutos() {
         </tr>
     `).join("");
 
-    fillTable("produtos-table", ["Id", "Produto", "SKU", "Loja", "Preco", "Estoque", "Status", "Acao"], rows);
+    fillTable("produtos-table", ["Id", "Produto", "Loja", "Preco", "Estoque", "Status", "Acao"], rows);
 
     document.querySelectorAll("[data-product-status]").forEach((button) => {
         button.addEventListener("click", async () => {
