@@ -2,6 +2,7 @@ namespace Omnimarket.Api.Models.Enum
 {
     public enum TipoMidiaProduto
     {
-        Foto = 1
+        Foto = 1,
+        Video = 2
     }
 }

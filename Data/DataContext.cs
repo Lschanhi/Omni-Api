@@ -120,6 +120,18 @@ namespace Omnimarket.Api.Data
                 .Property(f => f.MimeType)
                 .HasMaxLength(120);
 
+            modelBuilder.Entity<ProdutoMidia>()
+                .Property(m => m.Url)
+                .HasMaxLength(500);
+
+            modelBuilder.Entity<ProdutoMidia>()
+                .Property(m => m.ContentType)
+                .HasMaxLength(120);
+
+            modelBuilder.Entity<ProdutoMidia>()
+                .Property(m => m.NomeArquivo)
+                .HasMaxLength(260);
+
             modelBuilder.Entity<Produto>()
                 .Property(p => p.StatusPublicacao)
                 .HasConversion<string>();

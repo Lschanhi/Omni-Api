@@ -4,6 +4,7 @@ using Omnimarket.Api.Data;
 using Omnimarket.Api.Models.Dtos.Pedidos.Carrinho;
 using Omnimarket.Api.Models.Entidades;
 using Omnimarket.Api.Models.Enum;
+using Omnimarket.Api.Utils;
 
 namespace Omnimarket.Api.Services
 {
@@ -189,7 +190,8 @@ namespace Omnimarket.Api.Services
                         i.Produto.Estoque >= i.Quantidade,
                     ImagemPrincipal = i.Produto.Midias
                         .OrderBy(m => m.Ordem)
-                        .Select(m => m.Url)
+                        .Where(m => m.Tipo == TipoMidiaProduto.Foto)
+                        .Select(ProdutoMidiaHelper.ObterUrlLeitura)
                         .FirstOrDefault()
                 })
                 .ToList();

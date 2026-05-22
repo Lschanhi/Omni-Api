@@ -8,6 +8,7 @@ namespace Omnimarket.Api.Models.Dtos.Produtos.Midias
         public TipoMidiaProduto Tipo { get; set; }
         public string Url { get; set; } = string.Empty;
         public string? ContentType { get; set; }
+        public string NomeArquivo { get; set; } = string.Empty;
         public int Ordem { get; set; }
     }
 }

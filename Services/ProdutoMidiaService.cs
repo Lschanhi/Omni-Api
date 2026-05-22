@@ -3,23 +3,12 @@ using Microsoft.EntityFrameworkCore;
 using Omnimarket.Api.Data;
 using Omnimarket.Api.Models.Dtos.Produtos.Midias;
 using Omnimarket.Api.Models.Entidades;
-using Omnimarket.Api.Models.Enum;
+using Omnimarket.Api.Utils;
 
 namespace Omnimarket.Api.Services
 {
     public class ProdutoMidiaService
     {
-        private const int QuantidadeMaximaArquivos = 5;
-        private const long TamanhoMaximoArquivo = 5 * 1024 * 1024;
-
-        private static readonly HashSet<string> ExtensoesPermitidas = new(StringComparer.OrdinalIgnoreCase)
-        {
-            ".jpg",
-            ".jpeg",
-            ".png",
-            ".webp"
-        };
-
         private readonly DataContext _context;
 
         public ProdutoMidiaService(DataContext context)
@@ -45,8 +34,11 @@ namespace Omnimarket.Api.Services
             if (arquivos is null || arquivos.Count == 0)
                 throw new InvalidOperationException("Envie ao menos 1 arquivo.");
 
-            if (arquivos.Count > QuantidadeMaximaArquivos)
-                throw new InvalidOperationException($"Envie no maximo {QuantidadeMaximaArquivos} arquivos por vez.");
+            if (arquivos.Count > ProdutoMidiaHelper.QuantidadeMaximaMidiasPorOperacao)
+            {
+                throw new InvalidOperationException(
+                    $"Envie no maximo {ProdutoMidiaHelper.QuantidadeMaximaMidiasPorOperacao} arquivos por vez.");
+            }
 
             var produto = await _context.TBL_PRODUTO
                 .Include(p => p.Midias)
@@ -59,9 +51,6 @@ namespace Omnimarket.Api.Services
             if (produto.Loja.UsuarioId != usuarioId)
                 throw new UnauthorizedAccessException();
 
-            var pasta = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads", produtoId.ToString());
-            Directory.CreateDirectory(pasta);
-
             var ordemAtual = produto.Midias.Any() ? produto.Midias.Max(m => m.Ordem) + 1 : 0;
             var novasMidias = new List<ProdutoMidia>();
 
@@ -70,25 +59,28 @@ namespace Omnimarket.Api.Services
                 if (arquivo.Length == 0)
                     continue;
 
-                if (arquivo.Length > TamanhoMaximoArquivo)
-                    throw new InvalidOperationException($"O arquivo {arquivo.FileName} ultrapassa o limite de 5 MB.");
+                if (arquivo.Length > ProdutoMidiaHelper.TamanhoMaximoMidiaEmBytes)
+                {
+                    throw new InvalidOperationException(
+                        $"O arquivo {arquivo.FileName} ultrapassa o limite de 15 MB.");
+                }
 
-                var extensao = Path.GetExtension(arquivo.FileName).ToLowerInvariant();
-                if (!ExtensoesPermitidas.Contains(extensao))
-                    throw new InvalidOperationException($"A extensao {extensao} nao e permitida.");
+                var tipo = ProdutoMidiaHelper.DeterminarTipoMidia(
+                    arquivo.ContentType,
+                    arquivo.FileName,
+                    $"O arquivo {arquivo.FileName} nao possui formato suportado.");
 
-                var nomeSeguro = $"{Guid.NewGuid():N}{extensao}";
-                var caminho = Path.Combine(pasta, nomeSeguro);
-
-                await using var stream = System.IO.File.Create(caminho);
-                await arquivo.CopyToAsync(stream);
+                await using var memoryStream = new MemoryStream();
+                await arquivo.CopyToAsync(memoryStream);
 
                 novasMidias.Add(new ProdutoMidia
                 {
                     ProdutoId = produtoId,
-                    Tipo = TipoMidiaProduto.Foto,
-                    Url = $"/uploads/{produtoId}/{nomeSeguro}",
-                    ContentType = arquivo.ContentType,
+                    Tipo = tipo,
+                    Url = string.Empty,
+                    ContentType = arquivo.ContentType?.Trim(),
+                    NomeArquivo = ProdutoMidiaHelper.SanitizarNomeArquivo(arquivo.FileName, tipo),
+                    Conteudo = memoryStream.ToArray(),
                     Ordem = ordemAtual++
                 });
             }
@@ -123,29 +115,19 @@ namespace Omnimarket.Api.Services
             if (midia == null)
                 throw new KeyNotFoundException("Midia nao encontrada.");
 
-            if (midia.Url.StartsWith("/uploads/", StringComparison.OrdinalIgnoreCase))
-            {
-                var caminhoLocal = Path.Combine(
-                    Directory.GetCurrentDirectory(),
-                    "wwwroot",
-                    midia.Url.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
-
-                if (System.IO.File.Exists(caminhoLocal))
-                    System.IO.File.Delete(caminhoLocal);
-            }
-
             _context.ProdutoMidia.Remove(midia);
             await _context.SaveChangesAsync();
         }
 
-        private static ProdutoMidiaLeituraDto MapearMidia(ProdutoMidia midia)
+        public static ProdutoMidiaLeituraDto MapearMidia(ProdutoMidia midia)
         {
             return new ProdutoMidiaLeituraDto
             {
                 Id = midia.Id,
                 Tipo = midia.Tipo,
-                Url = midia.Url,
+                Url = ProdutoMidiaHelper.ObterUrlLeitura(midia),
                 ContentType = midia.ContentType,
+                NomeArquivo = midia.NomeArquivo,
                 Ordem = midia.Ordem
             };
         }

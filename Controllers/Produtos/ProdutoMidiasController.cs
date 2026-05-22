@@ -50,7 +50,6 @@ namespace Omnimarket.Api.Controllers
             }
         }
 
-        // Remove uma midia do produto e apaga o arquivo fisico quando ele foi salvo localmente.
         [HttpDelete("{midiaId:int}")]
         [Authorize]
         public async Task<IActionResult> Remover(int produtoId, int midiaId)
