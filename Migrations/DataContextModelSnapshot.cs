@@ -505,17 +505,9 @@ namespace OmniMarket.API.Migrations
                     b.Property<DateTime>("DataPedido")
                         .HasColumnType("datetime2");
 
-                    b.Property<int?>("LojaEntregaOpcaoId")
-                        .HasColumnType("int");
-
                     b.Property<string>("NomeEnderecoEntrega")
                         .IsRequired()
                         .HasMaxLength(200)
-                        .HasColumnType("varchar");
-
-                    b.Property<string>("NomeEntregaSnapshot")
-                        .IsRequired()
-                        .HasMaxLength(120)
                         .HasColumnType("varchar");
 
                     b.Property<string>("NumeroEntrega")
@@ -527,9 +519,6 @@ namespace OmniMarket.API.Migrations
                         .IsRequired()
                         .HasMaxLength(200)
                         .HasColumnType("varchar");
-
-                    b.Property<int>("PrazoEntregaDias")
-                        .HasColumnType("int");
 
                     b.Property<int>("StatusPedidosId")
                         .HasColumnType("int");

@@ -45,14 +45,6 @@ namespace Omnimarket.Api.Models.Entidades
         [Required(ErrorMessage = "Tipo de entrega e obrigatorio.")]
         public int TipoEntregaId { get; set; }
 
-        public int? LojaEntregaOpcaoId { get; set; }
-
-        [StringLength(120)]
-        public string NomeEntregaSnapshot { get; set; } = string.Empty;
-
-        [Range(0, 365, ErrorMessage = "Prazo de entrega invalido.")]
-        public int PrazoEntregaDias { get; set; }
-
         [Required]
         public StatusPedido StatusPedidosId { get; set; } = StatusPedido.Pendente;
 

@@ -12,8 +12,6 @@ internal sealed class ServiceTestFixture : IDisposable
     public CarrinhoService CarrinhoService { get; }
     public EnderecoService EnderecoService { get; }
     public FinanceiroService FinanceiroService { get; }
-    public CheckoutService CheckoutService { get; }
-    public LojaEntregaService LojaEntregaService { get; }
     public LojaService LojaService { get; }
     public PedidoService PedidoService { get; }
     public ProdutoService ProdutoService { get; }
@@ -53,10 +51,8 @@ internal sealed class ServiceTestFixture : IDisposable
         CarrinhoService = new CarrinhoService(Context);
         EnderecoService = new EnderecoService(Context);
         FinanceiroService = new FinanceiroService(Context, gatewayPagamentoService);
-        LojaEntregaService = new LojaEntregaService(Context);
         LojaService = new LojaService(Context);
         PedidoService = new PedidoService(Context, FinanceiroService);
-        CheckoutService = new CheckoutService(Context, CarrinhoService, LojaEntregaService, PedidoService);
         ProdutoService = new ProdutoService(Context);
         ReciboPedidoService = new ReciboPedidoService(Context);
         TelefoneService = new TelefoneService(Context);

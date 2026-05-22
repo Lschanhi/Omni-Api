@@ -7,8 +7,6 @@ namespace Omnimarket.Api.Models.Dtos.Pedidos
         public int Id { get; set; }
         public StatusPedido Status { get; set; }
         public string TipoEntrega { get; set; } = string.Empty;
-        public int? LojaEntregaOpcaoId { get; set; }
-        public int PrazoEntregaDias { get; set; }
         public decimal ValorTotalProdutos { get; set; }
         public decimal ValorFrete { get; set; }
         public decimal ValorTotalPedido { get; set; }
