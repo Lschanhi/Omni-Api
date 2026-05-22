@@ -79,6 +79,7 @@ builder.Services.AddScoped<UsuarioService>();
 builder.Services.AddScoped<UsuarioPerfilService>();
 builder.Services.AddScoped<TokenService>();
 builder.Services.AddScoped<PedidoService>();
+builder.Services.AddScoped<CheckoutService>();
 builder.Services.AddScoped<RegistrarService>();
 builder.Services.AddScoped<IProdutoService, ProdutoService>();
 builder.Services.AddScoped<AvaliacaoProdutoService>();
@@ -143,6 +144,13 @@ builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
 app.UseDeveloperExceptionPage();
+
+// Mantem o schema do banco alinhado com o codigo publicado antes de executar seeds.
+using (var scope = app.Services.CreateScope())
+{
+    var dataContext = scope.ServiceProvider.GetRequiredService<DataContext>();
+    await dataContext.Database.MigrateAsync();
+}
 
 await AdminSeedService.AplicarAsync(app.Services);
 
