@@ -23,19 +23,63 @@ namespace Omnimarket.Api.Services
 
         public async Task<Pedido> CriarPedido(int usuarioId, PedidoDto dto)
         {
+            var itensOrigem = await ResolverItensDoPedidoAsync(usuarioId, dto);
+            var entregaSelecionada = CriarEntregaLegada(dto.TipoEntregaId);
+
+            return await CriarPedidoInternalAsync(
+                usuarioId,
+                dto.EnderecoId,
+                (dto.Observacao ?? string.Empty).Trim(),
+                itensOrigem,
+                entregaSelecionada);
+        }
+
+        public async Task<Pedido> CriarPedidoComEntregaDaLojaAsync(
+            int usuarioId,
+            int? enderecoId,
+            int lojaEntregaOpcaoId,
+            IReadOnlyCollection<ItemPedidoDto> itens,
+            string? observacao = null)
+        {
+            if (itens == null || itens.Count == 0)
+                throw new InvalidOperationException("Informe ao menos um item para finalizar o checkout da loja.");
+
+            var opcaoEntrega = await _context.TBL_LOJA_ENTREGA_OPCAO
+                .AsNoTracking()
+                .FirstOrDefaultAsync(o => o.Id == lojaEntregaOpcaoId);
+
+            if (opcaoEntrega == null || !opcaoEntrega.Ativa)
+                throw new InvalidOperationException("Opcao de entrega da loja nao encontrada ou inativa.");
+
+            var entregaSelecionada = CriarEntregaDaLoja(opcaoEntrega);
+
+            return await CriarPedidoInternalAsync(
+                usuarioId,
+                enderecoId,
+                (observacao ?? string.Empty).Trim(),
+                itens.ToList(),
+                entregaSelecionada);
+        }
+
+        private async Task<Pedido> CriarPedidoInternalAsync(
+            int usuarioId,
+            int? enderecoId,
+            string observacao,
+            IReadOnlyCollection<ItemPedidoDto> itensOrigem,
+            EntregaSelecionadaPedido entregaSelecionada)
+        {
             var usuarioExiste = await _context.TBL_USUARIO.AnyAsync(u => u.Id == usuarioId);
             if (!usuarioExiste)
                 throw new Exception("Usuario nao encontrado.");
 
-            if (!EntregaHelper.TipoEntregaValido(dto.TipoEntregaId))
+            if (!EntregaHelper.TipoEntregaValido(entregaSelecionada.TipoEntregaId))
                 throw new Exception("Tipo de entrega invalido.");
 
             await using var transaction = await _context.Database.BeginTransactionAsync();
 
             try
             {
-                var enderecoEntrega = await ResolverEnderecoEntrega(usuarioId, dto.EnderecoId);
-                var itensOrigem = await ResolverItensDoPedidoAsync(usuarioId, dto);
+                var enderecoEntrega = await ResolverEnderecoEntrega(usuarioId, enderecoId);
 
                 var itensAgrupados = itensOrigem
                     .GroupBy(i => i.ProdutoId)
@@ -55,6 +99,26 @@ namespace Omnimarket.Api.Services
                     .Where(p => produtoIds.Contains(p.Id))
                     .ToDictionaryAsync(p => p.Id);
 
+                if (entregaSelecionada.LojaId.HasValue)
+                {
+                    var lojasDosItens = itensAgrupados
+                        .Select(item =>
+                        {
+                            if (!produtos.TryGetValue(item.ProdutoId, out var produto))
+                                throw new Exception($"Produto {item.ProdutoId} nao encontrado.");
+
+                            return produto.LojaId;
+                        })
+                        .Distinct()
+                        .ToList();
+
+                    if (lojasDosItens.Count != 1 || lojasDosItens[0] != entregaSelecionada.LojaId.Value)
+                    {
+                        throw new InvalidOperationException(
+                            "Os itens informados nao pertencem todos a loja da opcao de entrega selecionada.");
+                    }
+                }
+
                 var pedido = new Pedido
                 {
                     UsuarioId = usuarioId,
@@ -65,8 +129,11 @@ namespace Omnimarket.Api.Services
                     CepEntrega = enderecoEntrega.Cep,
                     CidadeEntrega = enderecoEntrega.Cidade,
                     UfEntrega = enderecoEntrega.Uf,
-                    TipoEntregaId = dto.TipoEntregaId,
-                    Observacao = (dto.Observacao ?? string.Empty).Trim(),
+                    TipoEntregaId = entregaSelecionada.TipoEntregaId,
+                    LojaEntregaOpcaoId = entregaSelecionada.LojaEntregaOpcaoId,
+                    NomeEntregaSnapshot = entregaSelecionada.NomeEntrega,
+                    PrazoEntregaDias = entregaSelecionada.PrazoEntregaDias,
+                    Observacao = observacao,
                     StatusPedidosId = StatusPedido.Pendente,
                     DataPedido = DateTime.UtcNow
                 };
@@ -104,8 +171,8 @@ namespace Omnimarket.Api.Services
                 }
 
                 pedido.ValorTotalProdutos = pedido.Itens.Sum(i => i.ValorTotal);
-                pedido.ValorFrete = 0m;
-                pedido.ValorTotalPedido = pedido.ValorTotalProdutos;
+                pedido.ValorFrete = entregaSelecionada.ValorFrete;
+                pedido.ValorTotalPedido = pedido.ValorTotalProdutos + pedido.ValorFrete;
 
                 await RemoverItensCompradosDoCarrinhoAsync(usuarioId, itensAgrupados);
                 await _context.TBL_PEDIDO.AddAsync(pedido);
@@ -392,7 +459,11 @@ namespace Omnimarket.Api.Services
             {
                 Id = pedido.Id,
                 Status = pedido.StatusPedidosId,
-                TipoEntrega = EntregaHelper.ObterNomeTipoEntrega(pedido.TipoEntregaId),
+                TipoEntrega = string.IsNullOrWhiteSpace(pedido.NomeEntregaSnapshot)
+                    ? EntregaHelper.ObterNomeTipoEntrega(pedido.TipoEntregaId)
+                    : pedido.NomeEntregaSnapshot,
+                LojaEntregaOpcaoId = pedido.LojaEntregaOpcaoId,
+                PrazoEntregaDias = pedido.PrazoEntregaDias,
                 ValorTotalProdutos = pedido.ValorTotalProdutos,
                 ValorFrete = pedido.ValorFrete,
                 ValorTotalPedido = pedido.ValorTotalPedido,
@@ -417,11 +488,40 @@ namespace Omnimarket.Api.Services
                         Quantidade = i.Quantidade,
                         PrecoUnitario = i.PrecoUnitario,
                         ValorTotal = i.ValorTotal
-                    })
+                })
                     .ToList()
             };
         }
 
+        private static EntregaSelecionadaPedido CriarEntregaLegada(int tipoEntregaId)
+        {
+            return new EntregaSelecionadaPedido(
+                tipoEntregaId,
+                null,
+                null,
+                EntregaHelper.ObterNomeTipoEntrega(tipoEntregaId),
+                0m,
+                0);
+        }
+
+        private static EntregaSelecionadaPedido CriarEntregaDaLoja(LojaEntregaOpcao opcao)
+        {
+            return new EntregaSelecionadaPedido(
+                opcao.TipoEntregaId,
+                opcao.Id,
+                opcao.LojaId,
+                opcao.Nome,
+                EntregaHelper.TipoEntregaEhRetirada(opcao.TipoEntregaId) ? 0m : opcao.ValorFrete,
+                opcao.PrazoEntregaDias);
+        }
+
         private sealed record ItemAgrupadoPedido(int ProdutoId, int Quantidade);
+        private sealed record EntregaSelecionadaPedido(
+            int TipoEntregaId,
+            int? LojaEntregaOpcaoId,
+            int? LojaId,
+            string NomeEntrega,
+            decimal ValorFrete,
+            int PrazoEntregaDias);
     }
 }

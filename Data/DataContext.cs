@@ -232,6 +232,10 @@ namespace Omnimarket.Api.Data
                 .Property(i => i.TipoDocumentoLojaSnapshot)
                 .HasMaxLength(30);
 
+            modelBuilder.Entity<Pedido>()
+                .Property(p => p.NomeEntregaSnapshot)
+                .HasMaxLength(120);
+
             modelBuilder.Entity<PlanoPagamento>()
                 .HasOne(p => p.Pedido)
                 .WithMany()

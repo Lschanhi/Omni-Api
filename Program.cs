@@ -79,6 +79,7 @@ builder.Services.AddScoped<UsuarioService>();
 builder.Services.AddScoped<UsuarioPerfilService>();
 builder.Services.AddScoped<TokenService>();
 builder.Services.AddScoped<PedidoService>();
+builder.Services.AddScoped<CheckoutService>();
 builder.Services.AddScoped<RegistrarService>();
 builder.Services.AddScoped<IProdutoService, ProdutoService>();
 builder.Services.AddScoped<AvaliacaoProdutoService>();
