@@ -215,6 +215,51 @@ public class ProdutoServiceTests
     }
 
     [Fact]
+    public async Task UpdateAsync_DevePersistirCamposDoFormularioEPausarProdutoQuandoDisponivelForFalse()
+    {
+        using var fixture = new ServiceTestFixture();
+        var vendedor = await fixture.CriarUsuarioAsync("seller-update-form");
+        var produto = await fixture.CriarProdutoAsync(vendedor.Id, preco: 50m, estoque: 10);
+
+        var atualizado = await fixture.ProdutoService.UpdateAsync(
+            produto.Id,
+            new ProdutoAtualizarDto
+            {
+                Nome = "Mousse de Limao",
+                Categoria = "Doces",
+                Preco = 10.90m,
+                Estoque = 7,
+                Disponivel = false,
+                Descricao = "Sobremesa gelada"
+            },
+            vendedor.Id);
+
+        fixture.Context.ChangeTracker.Clear();
+
+        var produtoSalvo = await fixture.Context.TBL_PRODUTO.SingleAsync(p => p.Id == produto.Id);
+        var historico = await fixture.Context.TBL_HISTORICO_PRODUTO.SingleAsync(h => h.ProdutoId == produto.Id);
+        var produtosPublicados = await fixture.ProdutoService.GetAllAsync();
+
+        Assert.True(atualizado);
+        Assert.Equal("Mousse de Limao", produtoSalvo.Nome);
+        Assert.Equal("Doces", produtoSalvo.Categoria);
+        Assert.Equal(10.90m, produtoSalvo.Preco);
+        Assert.Equal(7, produtoSalvo.Estoque);
+        Assert.Equal("Sobremesa gelada", produtoSalvo.Descricao);
+        Assert.Equal(StatusProduto.Pausado, produtoSalvo.StatusPublicacao);
+        Assert.False(produtoSalvo.Disponivel);
+        Assert.DoesNotContain(produtosPublicados, p => p.Id == produto.Id);
+
+        Assert.Equal("EdicaoDados", historico.TipoAlteracao);
+        Assert.Equal(50m, historico.PrecoAnterior);
+        Assert.Equal(10.90m, historico.PrecoNovo);
+        Assert.Equal(10, historico.EstoqueAnterior);
+        Assert.Equal(7, historico.EstoqueNovo);
+        Assert.Equal("Produto usado para teste automatizado.", historico.DescricaoAnterior);
+        Assert.Equal("Sobremesa gelada", historico.DescricaoNova);
+    }
+
+    [Fact]
     public async Task AtualizarEstoqueAsync_DeveRegistrarHistoricoSeparado()
     {
         using var fixture = new ServiceTestFixture();
