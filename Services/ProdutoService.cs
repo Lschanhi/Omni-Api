@@ -1,9 +1,13 @@
 using Microsoft.EntityFrameworkCore;
 using Omnimarket.Api.Data;
 using Omnimarket.Api.Models.Dtos.Produtos;
+using Omnimarket.Api.Models.Dtos.Produtos.Midias;
 using Omnimarket.Api.Models.Entidades;
 using Omnimarket.Api.Models.Enum;
 using Omnimarket.Api.Services.Interfaces;
+using Omnimarket.Api.Utils;
+using System.Globalization;
+using System.Text;
 
 namespace Omnimarket.Api.Services
 {
@@ -13,6 +17,8 @@ namespace Omnimarket.Api.Services
         private const string TipoAlteracaoEdicaoDados = "EdicaoDados";
         private const string TipoAlteracaoEstoque = "AtualizacaoEstoque";
         private const string TipoAlteracaoDesativacao = "DesativacaoLogica";
+        private const string TipoAlteracaoDesativacaoCategoria = "DesativacaoCategoria";
+        private const string MensagemMidiaInvalida = "Formato de midia invalido para o produto.";
 
         public ProdutoService(DataContext context)
         {
@@ -181,25 +187,82 @@ namespace Omnimarket.Api.Services
             if (produto.StatusPublicacao == StatusProduto.Desativado)
                 return true;
 
-            var dataAlteracao = DateTimeOffset.UtcNow;
-            produto.StatusPublicacao = StatusProduto.Desativado;
-            produto.DtAtualizacao = dataAlteracao;
-
-            RegistrarHistoricoProduto(
-                produto,
-                usuarioId,
-                TipoAlteracaoDesativacao,
-                dataAlteracao,
-                precoAnterior: produto.Preco,
-                precoNovo: produto.Preco,
-                estoqueAnterior: produto.Estoque,
-                estoqueNovo: produto.Estoque,
-                descricaoAnterior: produto.Descricao,
-                descricaoNova: produto.Descricao);
+            DesativarProdutoLogicamente(produto, usuarioId, TipoAlteracaoDesativacao, DateTimeOffset.UtcNow);
 
             await _context.SaveChangesAsync();
 
             return true;
+        }
+
+        public async Task<CategoriaExclusaoResultadoDto> DeleteCategoryAsync(
+            string categoria,
+            int usuarioId,
+            bool confirmarExclusaoProdutos)
+        {
+            var categoriaNormalizada = NormalizarTextoObrigatorio(
+                categoria,
+                "Informe uma categoria valida para excluir.");
+
+            var loja = await _context.TBL_LOJA
+                .FirstOrDefaultAsync(l => l.UsuarioId == usuarioId);
+
+            if (loja == null)
+                throw new InvalidOperationException("Crie uma loja antes de gerenciar categorias.");
+
+            var categoriaChave = CriarChaveCategoria(categoriaNormalizada);
+            var produtosCategoria = await _context.TBL_PRODUTO
+                .Where(p =>
+                    p.LojaId == loja.Id &&
+                    p.StatusPublicacao != StatusProduto.Desativado)
+                .ToListAsync();
+
+            var produtosParaDesativar = produtosCategoria
+                .Where(p => CriarChaveCategoria(p.Categoria) == categoriaChave)
+                .ToList();
+
+            if (produtosParaDesativar.Count == 0)
+            {
+                return new CategoriaExclusaoResultadoDto
+                {
+                    Categoria = categoriaNormalizada,
+                    TotalProdutosEncontrados = 0,
+                    TotalProdutosDesativados = 0,
+                    RequerConfirmacao = false,
+                    Mensagem = "Nenhum produto ativo foi encontrado nessa categoria."
+                };
+            }
+
+            if (!confirmarExclusaoProdutos)
+            {
+                return new CategoriaExclusaoResultadoDto
+                {
+                    Categoria = categoriaNormalizada,
+                    TotalProdutosEncontrados = produtosParaDesativar.Count,
+                    TotalProdutosDesativados = 0,
+                    RequerConfirmacao = true,
+                    Mensagem = produtosParaDesativar.Count == 1
+                        ? "Esta categoria possui 1 produto ativo. Confirme para desativar a categoria e o produto vinculado."
+                        : $"Esta categoria possui {produtosParaDesativar.Count} produtos ativos. Confirme para desativar a categoria e todos os produtos vinculados."
+                };
+            }
+
+            var dataAlteracao = DateTimeOffset.UtcNow;
+
+            foreach (var produto in produtosParaDesativar)
+                DesativarProdutoLogicamente(produto, usuarioId, TipoAlteracaoDesativacaoCategoria, dataAlteracao);
+
+            await _context.SaveChangesAsync();
+
+            return new CategoriaExclusaoResultadoDto
+            {
+                Categoria = categoriaNormalizada,
+                TotalProdutosEncontrados = produtosParaDesativar.Count,
+                TotalProdutosDesativados = produtosParaDesativar.Count,
+                RequerConfirmacao = false,
+                Mensagem = produtosParaDesativar.Count == 1
+                    ? "Categoria removida com sucesso. 1 produto foi desativado."
+                    : $"Categoria removida com sucesso. {produtosParaDesativar.Count} produtos foram desativados."
+            };
         }
 
         public async Task<PageResult<ProdutoLeituraDto>> GetPagedAsync(ProdutoFiltroDto filtro)
@@ -272,7 +335,7 @@ namespace Omnimarket.Api.Services
 
         private void SincronizarImagens(Produto produto, IEnumerable<string> imagens)
         {
-            var urls = NormalizarImagens(imagens).ToList();
+            var entradasMidia = NormalizarImagens(imagens).ToList();
             var fotosAtuais = produto.Midias
                 .Where(m => m.Tipo == TipoMidiaProduto.Foto)
                 .ToList();
@@ -290,27 +353,28 @@ namespace Omnimarket.Api.Services
                 .ToList();
 
             for (var index = 0; index < midiasNaoFoto.Count; index++)
-                midiasNaoFoto[index].Ordem = urls.Count + index;
+                midiasNaoFoto[index].Ordem = entradasMidia.Count + index;
 
-            AdicionarImagens(produto, urls);
+            AdicionarImagens(produto, entradasMidia);
         }
 
         private static void AdicionarImagens(Produto produto, IEnumerable<string>? imagens)
         {
-            var urls = NormalizarImagens(imagens).ToList();
-            if (urls.Count == 0)
+            var entradasMidia = NormalizarImagens(imagens).ToList();
+            if (entradasMidia.Count == 0)
                 return;
+
+            if (entradasMidia.Count > ProdutoMidiaHelper.QuantidadeMaximaMidiasPorOperacao)
+            {
+                throw new InvalidOperationException(
+                    $"Envie no maximo {ProdutoMidiaHelper.QuantidadeMaximaMidiasPorOperacao} midias por operacao.");
+            }
 
             var ordemInicial = produto.Midias.Any() ? produto.Midias.Max(m => m.Ordem) + 1 : 0;
 
-            for (var index = 0; index < urls.Count; index++)
+            for (var index = 0; index < entradasMidia.Count; index++)
             {
-                produto.Midias.Add(new ProdutoMidia
-                {
-                    Tipo = TipoMidiaProduto.Foto,
-                    Url = urls[index],
-                    Ordem = ordemInicial + index
-                });
+                produto.Midias.Add(CriarMidiaProduto(entradasMidia[index], ordemInicial + index));
             }
         }
 
@@ -324,6 +388,41 @@ namespace Omnimarket.Api.Services
                 .Where(url => !string.IsNullOrWhiteSpace(url))
                 .Cast<string>()
                 .ToList();
+        }
+
+        private static ProdutoMidia CriarMidiaProduto(string entradaMidia, int ordem)
+        {
+            if (ProdutoMidiaHelper.EhDataUrl(entradaMidia))
+            {
+                var (mimeType, conteudo) = ProdutoMidiaHelper.ConverterDataUrl(entradaMidia, MensagemMidiaInvalida);
+
+                if (conteudo.Length > ProdutoMidiaHelper.TamanhoMaximoMidiaEmBytes)
+                    throw new InvalidOperationException("Cada midia do produto deve ter no maximo 15 MB.");
+
+                var tipo = ProdutoMidiaHelper.DeterminarTipoMidia(mimeType, null, MensagemMidiaInvalida);
+
+                return new ProdutoMidia
+                {
+                    Tipo = tipo,
+                    Url = string.Empty,
+                    ContentType = mimeType,
+                    NomeArquivo = ProdutoMidiaHelper.SanitizarNomeArquivo(null, tipo),
+                    Conteudo = conteudo,
+                    Ordem = ordem
+                };
+            }
+
+            var tipoLegado = ProdutoMidiaHelper.DeterminarTipoMidia(null, entradaMidia, MensagemMidiaInvalida);
+
+            return new ProdutoMidia
+            {
+                Tipo = tipoLegado,
+                Url = entradaMidia,
+                ContentType = null,
+                NomeArquivo = ProdutoMidiaHelper.SanitizarNomeArquivo(entradaMidia, tipoLegado),
+                Conteudo = null,
+                Ordem = ordem
+            };
         }
 
         private static string NormalizarTextoObrigatorio(string? valor, string mensagemErro)
@@ -340,6 +439,45 @@ namespace Omnimarket.Api.Services
                 return null;
 
             return valor.Trim();
+        }
+
+        private void DesativarProdutoLogicamente(
+            Produto produto,
+            int usuarioId,
+            string tipoAlteracao,
+            DateTimeOffset dataAlteracao)
+        {
+            produto.StatusPublicacao = StatusProduto.Desativado;
+            produto.DtAtualizacao = dataAlteracao;
+
+            RegistrarHistoricoProduto(
+                produto,
+                usuarioId,
+                tipoAlteracao,
+                dataAlteracao,
+                precoAnterior: produto.Preco,
+                precoNovo: produto.Preco,
+                estoqueAnterior: produto.Estoque,
+                estoqueNovo: produto.Estoque,
+                descricaoAnterior: produto.Descricao,
+                descricaoNova: produto.Descricao);
+        }
+
+        private static string CriarChaveCategoria(string? valor)
+        {
+            if (string.IsNullOrWhiteSpace(valor))
+                return string.Empty;
+
+            var textoNormalizado = valor.Trim().Normalize(NormalizationForm.FormD);
+            var builder = new StringBuilder(textoNormalizado.Length);
+
+            foreach (var caractere in textoNormalizado)
+            {
+                if (CharUnicodeInfo.GetUnicodeCategory(caractere) != UnicodeCategory.NonSpacingMark)
+                    builder.Append(char.ToLowerInvariant(caractere));
+            }
+
+            return builder.ToString().Normalize(NormalizationForm.FormC);
         }
 
         private void RegistrarHistoricoProduto(
@@ -374,6 +512,10 @@ namespace Omnimarket.Api.Services
 
         private static ProdutoLeituraDto MapToDto(Produto produto)
         {
+            var midiasOrdenadas = produto.Midias
+                .OrderBy(m => m.Ordem)
+                .ToList();
+
             return new ProdutoLeituraDto
             {
                 Id = produto.Id,
@@ -390,9 +532,12 @@ namespace Omnimarket.Api.Services
                 DtAtualizacao = produto.DtAtualizacao,
                 LojaId = produto.LojaId,
                 NomeLoja = produto.Loja != null ? produto.Loja.NomeFantasia : string.Empty,
-                Imagens = produto.Midias
-                    .OrderBy(m => m.Ordem)
-                    .Select(m => m.Url)
+                Imagens = midiasOrdenadas
+                    .Where(m => m.Tipo == TipoMidiaProduto.Foto)
+                    .Select(ProdutoMidiaHelper.ObterUrlLeitura)
+                    .ToList(),
+                Midias = midiasOrdenadas
+                    .Select(ProdutoMidiaService.MapearMidia)
                     .ToList()
             };
         }

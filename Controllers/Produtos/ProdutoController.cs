@@ -132,6 +132,39 @@ namespace Omnimarket.Api.Controllers
             }
         }
 
+        // Desativa em lote os produtos ativos de uma categoria da loja do usuario autenticado.
+        [HttpDelete("categoria")]
+        [Authorize]
+        public async Task<IActionResult> DeleteCategory(
+            [FromQuery] string nomeCategoria,
+            [FromQuery] bool confirmarExclusaoProdutos = false)
+        {
+            try
+            {
+                var usuarioId = User.GetUserId();
+                var resultado = await _service.DeleteCategoryAsync(
+                    nomeCategoria,
+                    usuarioId,
+                    confirmarExclusaoProdutos);
+
+                if (resultado.TotalProdutosEncontrados == 0)
+                    return NotFound(resultado);
+
+                if (resultado.RequerConfirmacao)
+                    return Conflict(resultado);
+
+                return Ok(resultado);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return Forbid();
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { mensagem = ex.Message });
+            }
+        }
+
         // Retorna uma lista paginada com filtros simples de nome e faixa de preco.
         [HttpGet("filtro")]
         public async Task<IActionResult> GetPaged([FromQuery] ProdutoFiltroDto filtro)

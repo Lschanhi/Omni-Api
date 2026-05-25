@@ -144,13 +144,6 @@ builder.Services.AddSwaggerGen();
 var app = builder.Build();
 app.UseDeveloperExceptionPage();
 
-// Mantem o schema do banco alinhado com o codigo publicado antes de executar seeds.
-using (var scope = app.Services.CreateScope())
-{
-    var dataContext = scope.ServiceProvider.GetRequiredService<DataContext>();
-    await dataContext.Database.MigrateAsync();
-}
-
 await AdminSeedService.AplicarAsync(app.Services);
 
 // Pipeline HTTP da aplicacao.

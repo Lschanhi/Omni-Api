@@ -1,4 +1,5 @@
 using Omnimarket.Api.Models.Enum;
+using Omnimarket.Api.Models.Dtos.Produtos.Midias;
 
 namespace Omnimarket.Api.Models.Dtos.Produtos
 {
@@ -19,5 +20,6 @@ namespace Omnimarket.Api.Models.Dtos.Produtos
         public int LojaId { get; set; }
         public string NomeLoja { get; set; } = string.Empty;
         public List<string> Imagens { get; set; } = new();
+        public List<ProdutoMidiaLeituraDto> Midias { get; set; } = new();
     }
 }

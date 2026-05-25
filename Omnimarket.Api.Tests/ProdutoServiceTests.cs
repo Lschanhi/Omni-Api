@@ -267,4 +267,63 @@ public class ProdutoServiceTests
         Assert.Equal("Produto usado para teste automatizado.", historico.DescricaoAnterior);
         Assert.Equal("Produto usado para teste automatizado.", historico.DescricaoNova);
     }
+
+    [Fact]
+    public async Task DeleteCategoryAsync_DeveExigirConfirmacaoQuandoHouverProdutosAtivos()
+    {
+        using var fixture = new ServiceTestFixture();
+        var vendedor = await fixture.CriarUsuarioAsync("seller-category-confirm");
+        await fixture.CriarProdutoAsync(vendedor.Id, preco: 30m, estoque: 2);
+        await fixture.CriarProdutoAsync(vendedor.Id, preco: 40m, estoque: 4);
+
+        var resultado = await fixture.ProdutoService.DeleteCategoryAsync("Teste", vendedor.Id, confirmarExclusaoProdutos: false);
+
+        fixture.Context.ChangeTracker.Clear();
+
+        var produtosAtivos = await fixture.Context.TBL_PRODUTO
+            .Where(p => p.Loja.UsuarioId == vendedor.Id)
+            .Select(p => p.StatusPublicacao)
+            .ToListAsync();
+
+        Assert.True(resultado.RequerConfirmacao);
+        Assert.Equal(2, resultado.TotalProdutosEncontrados);
+        Assert.Equal(0, resultado.TotalProdutosDesativados);
+        Assert.All(produtosAtivos, status => Assert.Equal(StatusProduto.Publicado, status));
+        Assert.Empty(await fixture.Context.TBL_HISTORICO_PRODUTO.ToListAsync());
+    }
+
+    [Fact]
+    public async Task DeleteCategoryAsync_DeveDesativarTodosOsProdutosDaCategoriaERegistrarHistorico()
+    {
+        using var fixture = new ServiceTestFixture();
+        var vendedor = await fixture.CriarUsuarioAsync("seller-category-delete");
+        var produtoA = await fixture.CriarProdutoAsync(vendedor.Id, preco: 30m, estoque: 2);
+        var produtoB = await fixture.CriarProdutoAsync(vendedor.Id, preco: 40m, estoque: 4);
+        var produtoOutraCategoria = await fixture.CriarProdutoAsync(vendedor.Id, preco: 55m, estoque: 5);
+
+        produtoOutraCategoria.Categoria = "Outra";
+        await fixture.Context.SaveChangesAsync();
+
+        var resultado = await fixture.ProdutoService.DeleteCategoryAsync("teste", vendedor.Id, confirmarExclusaoProdutos: true);
+
+        fixture.Context.ChangeTracker.Clear();
+
+        var produtos = await fixture.Context.TBL_PRODUTO
+            .Where(p => p.Loja.UsuarioId == vendedor.Id)
+            .OrderBy(p => p.Id)
+            .ToListAsync();
+        var historicos = await fixture.Context.TBL_HISTORICO_PRODUTO
+            .Where(h => h.LojaId == produtos[0].LojaId)
+            .OrderBy(h => h.ProdutoId)
+            .ToListAsync();
+
+        Assert.False(resultado.RequerConfirmacao);
+        Assert.Equal(2, resultado.TotalProdutosEncontrados);
+        Assert.Equal(2, resultado.TotalProdutosDesativados);
+        Assert.Equal(StatusProduto.Desativado, produtos.Single(p => p.Id == produtoA.Id).StatusPublicacao);
+        Assert.Equal(StatusProduto.Desativado, produtos.Single(p => p.Id == produtoB.Id).StatusPublicacao);
+        Assert.Equal(StatusProduto.Publicado, produtos.Single(p => p.Id == produtoOutraCategoria.Id).StatusPublicacao);
+        Assert.Equal(2, historicos.Count);
+        Assert.All(historicos, historico => Assert.Equal("DesativacaoCategoria", historico.TipoAlteracao));
+    }
 }

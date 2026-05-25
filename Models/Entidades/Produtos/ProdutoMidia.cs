@@ -1,7 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
 using System.ComponentModel.DataAnnotations;
 using Omnimarket.Api.Models.Enum;
 
@@ -19,15 +15,18 @@ namespace Omnimarket.Api.Models.Entidades
         [Required]
         public TipoMidiaProduto Tipo { get; set; }
 
-        // Opção A (recomendada): link do arquivo no storage
         [Required, StringLength(500)]
         public string Url { get; set; } = string.Empty;
 
-        // Metadados úteis
-        [StringLength(100)]
-        public string? ContentType { get; set; }   // image/jpeg, video/mp4 etc.
+        [StringLength(120)]
+        public string? ContentType { get; set; }
 
-        public int Ordem { get; set; } = 0;        // ordenação no carrossel
+        [StringLength(260)]
+        public string NomeArquivo { get; set; } = string.Empty;
+
+        public byte[]? Conteudo { get; set; }
+
+        public int Ordem { get; set; } = 0;
 
         public DateTimeOffset DtCriacao { get; set; } = DateTimeOffset.UtcNow;
     }

@@ -15,6 +15,7 @@ internal sealed class ServiceTestFixture : IDisposable
     public LojaService LojaService { get; }
     public PedidoService PedidoService { get; }
     public ProdutoService ProdutoService { get; }
+    public ProdutoMidiaService ProdutoMidiaService { get; }
     public ReciboPedidoService ReciboPedidoService { get; }
     public TelefoneService TelefoneService { get; }
     public UsuarioPerfilService UsuarioPerfilService { get; }
@@ -53,6 +54,7 @@ internal sealed class ServiceTestFixture : IDisposable
         FinanceiroService = new FinanceiroService(Context, gatewayPagamentoService);
         LojaService = new LojaService(Context);
         PedidoService = new PedidoService(Context, FinanceiroService);
+        ProdutoMidiaService = new ProdutoMidiaService(Context);
         ProdutoService = new ProdutoService(Context);
         ReciboPedidoService = new ReciboPedidoService(Context);
         TelefoneService = new TelefoneService(Context);
