@@ -12,6 +12,7 @@ namespace Omnimarket.Api.Services.Interfaces
         Task<bool> UpdateAsync(int id, ProdutoAtualizarDto dto, int usuarioId);
         Task<bool> AtualizarEstoqueAsync(int id, ProdutoAtualizarEstoqueDto dto, int usuarioId);
         Task<bool> DeleteAsync(int id, int usuarioId);
+        Task<CategoriaExclusaoResultadoDto> DeleteCategoryAsync(string categoria, int usuarioId, bool confirmarExclusaoProdutos);
         Task<PageResult<ProdutoLeituraDto>> GetPagedAsync(ProdutoFiltroDto filtro);
     }
 }

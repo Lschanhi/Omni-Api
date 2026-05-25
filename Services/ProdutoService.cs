@@ -6,6 +6,8 @@ using Omnimarket.Api.Models.Entidades;
 using Omnimarket.Api.Models.Enum;
 using Omnimarket.Api.Services.Interfaces;
 using Omnimarket.Api.Utils;
+using System.Globalization;
+using System.Text;
 
 namespace Omnimarket.Api.Services
 {
@@ -15,6 +17,7 @@ namespace Omnimarket.Api.Services
         private const string TipoAlteracaoEdicaoDados = "EdicaoDados";
         private const string TipoAlteracaoEstoque = "AtualizacaoEstoque";
         private const string TipoAlteracaoDesativacao = "DesativacaoLogica";
+        private const string TipoAlteracaoDesativacaoCategoria = "DesativacaoCategoria";
         private const string MensagemMidiaInvalida = "Formato de midia invalido para o produto.";
 
         public ProdutoService(DataContext context)
@@ -184,25 +187,82 @@ namespace Omnimarket.Api.Services
             if (produto.StatusPublicacao == StatusProduto.Desativado)
                 return true;
 
-            var dataAlteracao = DateTimeOffset.UtcNow;
-            produto.StatusPublicacao = StatusProduto.Desativado;
-            produto.DtAtualizacao = dataAlteracao;
-
-            RegistrarHistoricoProduto(
-                produto,
-                usuarioId,
-                TipoAlteracaoDesativacao,
-                dataAlteracao,
-                precoAnterior: produto.Preco,
-                precoNovo: produto.Preco,
-                estoqueAnterior: produto.Estoque,
-                estoqueNovo: produto.Estoque,
-                descricaoAnterior: produto.Descricao,
-                descricaoNova: produto.Descricao);
+            DesativarProdutoLogicamente(produto, usuarioId, TipoAlteracaoDesativacao, DateTimeOffset.UtcNow);
 
             await _context.SaveChangesAsync();
 
             return true;
+        }
+
+        public async Task<CategoriaExclusaoResultadoDto> DeleteCategoryAsync(
+            string categoria,
+            int usuarioId,
+            bool confirmarExclusaoProdutos)
+        {
+            var categoriaNormalizada = NormalizarTextoObrigatorio(
+                categoria,
+                "Informe uma categoria valida para excluir.");
+
+            var loja = await _context.TBL_LOJA
+                .FirstOrDefaultAsync(l => l.UsuarioId == usuarioId);
+
+            if (loja == null)
+                throw new InvalidOperationException("Crie uma loja antes de gerenciar categorias.");
+
+            var categoriaChave = CriarChaveCategoria(categoriaNormalizada);
+            var produtosCategoria = await _context.TBL_PRODUTO
+                .Where(p =>
+                    p.LojaId == loja.Id &&
+                    p.StatusPublicacao != StatusProduto.Desativado)
+                .ToListAsync();
+
+            var produtosParaDesativar = produtosCategoria
+                .Where(p => CriarChaveCategoria(p.Categoria) == categoriaChave)
+                .ToList();
+
+            if (produtosParaDesativar.Count == 0)
+            {
+                return new CategoriaExclusaoResultadoDto
+                {
+                    Categoria = categoriaNormalizada,
+                    TotalProdutosEncontrados = 0,
+                    TotalProdutosDesativados = 0,
+                    RequerConfirmacao = false,
+                    Mensagem = "Nenhum produto ativo foi encontrado nessa categoria."
+                };
+            }
+
+            if (!confirmarExclusaoProdutos)
+            {
+                return new CategoriaExclusaoResultadoDto
+                {
+                    Categoria = categoriaNormalizada,
+                    TotalProdutosEncontrados = produtosParaDesativar.Count,
+                    TotalProdutosDesativados = 0,
+                    RequerConfirmacao = true,
+                    Mensagem = produtosParaDesativar.Count == 1
+                        ? "Esta categoria possui 1 produto ativo. Confirme para desativar a categoria e o produto vinculado."
+                        : $"Esta categoria possui {produtosParaDesativar.Count} produtos ativos. Confirme para desativar a categoria e todos os produtos vinculados."
+                };
+            }
+
+            var dataAlteracao = DateTimeOffset.UtcNow;
+
+            foreach (var produto in produtosParaDesativar)
+                DesativarProdutoLogicamente(produto, usuarioId, TipoAlteracaoDesativacaoCategoria, dataAlteracao);
+
+            await _context.SaveChangesAsync();
+
+            return new CategoriaExclusaoResultadoDto
+            {
+                Categoria = categoriaNormalizada,
+                TotalProdutosEncontrados = produtosParaDesativar.Count,
+                TotalProdutosDesativados = produtosParaDesativar.Count,
+                RequerConfirmacao = false,
+                Mensagem = produtosParaDesativar.Count == 1
+                    ? "Categoria removida com sucesso. 1 produto foi desativado."
+                    : $"Categoria removida com sucesso. {produtosParaDesativar.Count} produtos foram desativados."
+            };
         }
 
         public async Task<PageResult<ProdutoLeituraDto>> GetPagedAsync(ProdutoFiltroDto filtro)
@@ -379,6 +439,45 @@ namespace Omnimarket.Api.Services
                 return null;
 
             return valor.Trim();
+        }
+
+        private void DesativarProdutoLogicamente(
+            Produto produto,
+            int usuarioId,
+            string tipoAlteracao,
+            DateTimeOffset dataAlteracao)
+        {
+            produto.StatusPublicacao = StatusProduto.Desativado;
+            produto.DtAtualizacao = dataAlteracao;
+
+            RegistrarHistoricoProduto(
+                produto,
+                usuarioId,
+                tipoAlteracao,
+                dataAlteracao,
+                precoAnterior: produto.Preco,
+                precoNovo: produto.Preco,
+                estoqueAnterior: produto.Estoque,
+                estoqueNovo: produto.Estoque,
+                descricaoAnterior: produto.Descricao,
+                descricaoNova: produto.Descricao);
+        }
+
+        private static string CriarChaveCategoria(string? valor)
+        {
+            if (string.IsNullOrWhiteSpace(valor))
+                return string.Empty;
+
+            var textoNormalizado = valor.Trim().Normalize(NormalizationForm.FormD);
+            var builder = new StringBuilder(textoNormalizado.Length);
+
+            foreach (var caractere in textoNormalizado)
+            {
+                if (CharUnicodeInfo.GetUnicodeCategory(caractere) != UnicodeCategory.NonSpacingMark)
+                    builder.Append(char.ToLowerInvariant(caractere));
+            }
+
+            return builder.ToString().Normalize(NormalizationForm.FormC);
         }
 
         private void RegistrarHistoricoProduto(
