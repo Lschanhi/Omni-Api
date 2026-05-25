@@ -10,12 +10,12 @@ namespace Omnimarket.Api.Controllers
     [Route("api/[controller]")]
     public class UsuarioController : ControllerBase
     {
-        private readonly RegistrarService _registrarService;
+        private readonly AuthService _authService;
         private readonly UsuarioPerfilService _usuarioPerfilService;
 
-        public UsuarioController(RegistrarService registrarService, UsuarioPerfilService usuarioPerfilService)
+        public UsuarioController(AuthService authService, UsuarioPerfilService usuarioPerfilService)
         {
-            _registrarService = registrarService;
+            _authService = authService;
             _usuarioPerfilService = usuarioPerfilService;
         }
 
@@ -52,7 +52,7 @@ namespace Omnimarket.Api.Controllers
                 if (!ModelState.IsValid)
                     return BadRequest(ModelState);
 
-                var usuario = await _registrarService.RegistrarUsuario(userDto);
+                var usuario = await _authService.RegistrarUsuario(userDto);
 
                 return Ok(new
                 {

@@ -75,11 +75,9 @@ builder.Services.AddAuthentication(options =>
 
 // Servicos de negocio que serao injetados nos controllers.
 builder.Services.AddScoped<AuthService>();
-builder.Services.AddScoped<UsuarioService>();
 builder.Services.AddScoped<UsuarioPerfilService>();
 builder.Services.AddScoped<TokenService>();
 builder.Services.AddScoped<PedidoService>();
-builder.Services.AddScoped<RegistrarService>();
 builder.Services.AddScoped<IProdutoService, ProdutoService>();
 builder.Services.AddScoped<AvaliacaoProdutoService>();
 builder.Services.AddScoped<LojaService>();
