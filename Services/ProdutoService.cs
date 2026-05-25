@@ -15,6 +15,7 @@ namespace Omnimarket.Api.Services
     {
         private readonly DataContext _context;
         private const string TipoAlteracaoEdicaoDados = "EdicaoDados";
+        private const string TipoAlteracaoStatusPublicacao = "AtualizacaoStatusPublicacao";
         private const string TipoAlteracaoEstoque = "AtualizacaoEstoque";
         private const string TipoAlteracaoDesativacao = "DesativacaoLogica";
         private const string TipoAlteracaoDesativacaoCategoria = "DesativacaoCategoria";
@@ -86,6 +87,7 @@ namespace Omnimarket.Api.Services
         {
             var produto = await _context.TBL_PRODUTO
                 .Include(p => p.Loja)
+                .Include(p => p.Midias)
                 .FirstOrDefaultAsync(p => p.Id == id);
 
             if (produto == null)
@@ -97,26 +99,71 @@ namespace Omnimarket.Api.Services
             if (produto.StatusPublicacao == StatusProduto.Desativado)
                 throw new Exception("Produto desativado nao pode ser alterado pelo editar comum.");
 
+            var nomeNormalizado = dto.Nome != null
+                ? NormalizarTextoObrigatorio(dto.Nome, "Informe um nome valido para o produto.")
+                : produto.Nome;
+
+            var categoriaNormalizada = dto.Categoria != null
+                ? NormalizarTextoObrigatorio(dto.Categoria, "Informe uma categoria valida para o produto.")
+                : produto.Categoria;
+
             var descricaoNormalizada = dto.Descricao != null
                 ? LimparOpcional(dto.Descricao)
                 : produto.Descricao;
 
-            var alterouPreco = dto.Preco.HasValue && produto.Preco != dto.Preco.Value;
-            var alterouDescricao = dto.Descricao != null && produto.Descricao != descricaoNormalizada;
+            var statusPublicacaoSolicitado = ResolverStatusPublicacaoAtualizado(dto);
 
-            if (!alterouPreco && !alterouDescricao)
+            if (statusPublicacaoSolicitado.HasValue && !Enum.IsDefined(typeof(StatusProduto), statusPublicacaoSolicitado.Value))
+                throw new Exception("Status de publicacao invalido para o produto.");
+
+            if (statusPublicacaoSolicitado == StatusProduto.Desativado)
+                throw new Exception("Use a exclusao do produto para desativar permanentemente o produto.");
+
+            var alterouNome = dto.Nome != null && produto.Nome != nomeNormalizado;
+            var alterouCategoria = dto.Categoria != null && produto.Categoria != categoriaNormalizada;
+            var alterouPreco = dto.Preco.HasValue && produto.Preco != dto.Preco.Value;
+            var alterouEstoque = dto.Estoque.HasValue && produto.Estoque != dto.Estoque.Value;
+            var alterouDescricao = dto.Descricao != null && produto.Descricao != descricaoNormalizada;
+            var alterouStatusPublicacao = statusPublicacaoSolicitado.HasValue &&
+                produto.StatusPublicacao != statusPublicacaoSolicitado.Value;
+            var alterouImagens = dto.Imagens != null;
+
+            if (!alterouNome &&
+                !alterouCategoria &&
+                !alterouPreco &&
+                !alterouEstoque &&
+                !alterouDescricao &&
+                !alterouStatusPublicacao &&
+                !alterouImagens)
                 return true;
 
             decimal? precoAnterior = alterouPreco ? produto.Preco : null;
             decimal? precoNovo = alterouPreco ? dto.Preco!.Value : null;
+            int? estoqueAnterior = alterouEstoque ? produto.Estoque : null;
+            int? estoqueNovo = alterouEstoque ? dto.Estoque!.Value : null;
             var descricaoAnterior = alterouDescricao ? produto.Descricao : null;
             var descricaoNova = alterouDescricao ? descricaoNormalizada : null;
+
+            if (alterouNome)
+                produto.Nome = nomeNormalizado;
+
+            if (alterouCategoria)
+                produto.Categoria = categoriaNormalizada;
 
             if (alterouPreco)
                 produto.Preco = dto.Preco!.Value;
 
+            if (alterouEstoque)
+                produto.Estoque = dto.Estoque!.Value;
+
             if (dto.Descricao != null)
                 produto.Descricao = descricaoNormalizada;
+
+            if (alterouStatusPublicacao)
+                produto.StatusPublicacao = statusPublicacaoSolicitado!.Value;
+
+            if (dto.Imagens != null)
+                SincronizarImagens(produto, dto.Imagens);
 
             var dataAlteracao = DateTimeOffset.UtcNow;
             produto.DtAtualizacao = dataAlteracao;
@@ -124,10 +171,19 @@ namespace Omnimarket.Api.Services
             RegistrarHistoricoProduto(
                 produto,
                 usuarioId,
-                TipoAlteracaoEdicaoDados,
+                DefinirTipoAlteracaoEdicao(
+                    alterouNome,
+                    alterouCategoria,
+                    alterouPreco,
+                    alterouEstoque,
+                    alterouDescricao,
+                    alterouStatusPublicacao,
+                    alterouImagens),
                 dataAlteracao,
                 precoAnterior: precoAnterior,
                 precoNovo: precoNovo,
+                estoqueAnterior: estoqueAnterior,
+                estoqueNovo: estoqueNovo,
                 descricaoAnterior: descricaoAnterior,
                 descricaoNova: descricaoNova);
 
@@ -439,6 +495,37 @@ namespace Omnimarket.Api.Services
                 return null;
 
             return valor.Trim();
+        }
+
+        private static StatusProduto? ResolverStatusPublicacaoAtualizado(ProdutoAtualizarDto dto)
+        {
+            if (dto.StatusPublicacao.HasValue)
+                return dto.StatusPublicacao.Value;
+
+            if (dto.Disponivel.HasValue)
+                return dto.Disponivel.Value ? StatusProduto.Publicado : StatusProduto.Pausado;
+
+            return null;
+        }
+
+        private static string DefinirTipoAlteracaoEdicao(
+            bool alterouNome,
+            bool alterouCategoria,
+            bool alterouPreco,
+            bool alterouEstoque,
+            bool alterouDescricao,
+            bool alterouStatusPublicacao,
+            bool alterouImagens)
+        {
+            return !alterouNome &&
+                !alterouCategoria &&
+                !alterouPreco &&
+                !alterouEstoque &&
+                !alterouDescricao &&
+                alterouStatusPublicacao &&
+                !alterouImagens
+                ? TipoAlteracaoStatusPublicacao
+                : TipoAlteracaoEdicaoDados;
         }
 
         private void DesativarProdutoLogicamente(
