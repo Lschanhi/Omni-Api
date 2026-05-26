@@ -7,6 +7,7 @@ using Microsoft.IdentityModel.Tokens;
 using Omnimarket.Api.Data;
 using Omnimarket.Api.Services;
 using Omnimarket.Api.Services.Interfaces;
+using Omnimarket.Api.Utils;
 using QuestPDF.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -66,10 +67,40 @@ builder.Services.AddAuthentication(options =>
         ValidateIssuer = true,
         ValidateAudience = true,
         ValidateLifetime = true,
+        RequireExpirationTime = false,
         ValidateIssuerSigningKey = true,
         ValidIssuer = builder.Configuration["Jwt:Issuer"],
         ValidAudience = builder.Configuration["Jwt:Audience"],
         IssuerSigningKey = new SymmetricSecurityKey(key)
+    };
+    options.Events = new JwtBearerEvents
+    {
+        OnTokenValidated = async context =>
+        {
+            try
+            {
+                var principal = context.Principal;
+
+                if (principal == null)
+                {
+                    context.Fail("Token de autenticacao invalido.");
+                    return;
+                }
+
+                var usuarioId = principal.GetUserId();
+                var sessaoVersao = principal.GetSessionVersion();
+                var authService = context.HttpContext.RequestServices.GetRequiredService<AuthService>();
+
+                if (!await authService.SessaoEstaAtivaAsync(usuarioId, sessaoVersao))
+                {
+                    context.Fail("Sessao encerrada. Faca login novamente.");
+                }
+            }
+            catch (Exception)
+            {
+                context.Fail("Token de autenticacao invalido.");
+            }
+        }
     };
 });
 

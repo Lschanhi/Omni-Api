@@ -20,7 +20,7 @@ internal sealed class ServiceTestFixture : IDisposable
     public TelefoneService TelefoneService { get; }
     public UsuarioPerfilService UsuarioPerfilService { get; }
 
-    public ServiceTestFixture(string? databaseName = null)
+    public ServiceTestFixture(string? databaseName = null, string jwtExpireMinutes = "60")
     {
         QuestPDF.Settings.License = QuestPDF.Infrastructure.LicenseType.Community;
 
@@ -40,7 +40,7 @@ internal sealed class ServiceTestFixture : IDisposable
                 ["Jwt:Key"] = "super-chave-de-teste-com-32-caracteres",
                 ["Jwt:Issuer"] = "Omnimarket.Tests",
                 ["Jwt:Audience"] = "Omnimarket.Tests.Client",
-                ["Jwt:ExpireMinutes"] = "60"
+                ["Jwt:ExpireMinutes"] = jwtExpireMinutes
             })
             .Build();
 

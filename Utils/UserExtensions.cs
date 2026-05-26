@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using Omnimarket.Api.Services;
 
 namespace Omnimarket.Api.Utils
 {
@@ -15,6 +16,16 @@ namespace Omnimarket.Api.Utils
                 throw new UnauthorizedAccessException("Usuario nao autenticado.");
 
             return int.Parse(claim.Value);
+        }
+
+        public static int GetSessionVersion(this ClaimsPrincipal user)
+        {
+            var claim = user.FindFirst(TokenService.SessionVersionClaim);
+
+            if (claim == null || !int.TryParse(claim.Value, out var sessaoVersao))
+                throw new UnauthorizedAccessException("Token de sessao invalido.");
+
+            return sessaoVersao;
         }
     }
 }

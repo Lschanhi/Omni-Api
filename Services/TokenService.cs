@@ -8,6 +8,8 @@ namespace Omnimarket.Api.Services
 {
     public class TokenService
     {
+        public const string SessionVersionClaim = "session_version";
+
         private readonly IConfiguration _configuration;
 
         public TokenService(IConfiguration configuration)
@@ -15,19 +17,17 @@ namespace Omnimarket.Api.Services
             _configuration = configuration;
         }
 
-        public (string token, DateTime expiraEmUtc) GerarToken(Usuario usuario)
+        public (string token, DateTime? expiraEmUtc) GerarToken(Usuario usuario)
         {
-            var expireMinutes = 60d;
+            DateTime? expiraEmUtc = null;
             var expireConfig = _configuration["Jwt:ExpireMinutes"];
 
             if (!string.IsNullOrWhiteSpace(expireConfig) &&
                 double.TryParse(expireConfig, out var parsedExpireMinutes) &&
                 parsedExpireMinutes > 0)
             {
-                expireMinutes = parsedExpireMinutes;
+                expiraEmUtc = DateTime.UtcNow.AddMinutes(parsedExpireMinutes);
             }
-
-            var expiraEmUtc = DateTime.UtcNow.AddMinutes(expireMinutes);
 
             var key = new SymmetricSecurityKey(
                 Encoding.UTF8.GetBytes(_configuration["Jwt:Key"]!)
@@ -39,7 +39,8 @@ namespace Omnimarket.Api.Services
             {
                 new Claim(ClaimTypes.NameIdentifier, usuario.Id.ToString()),
                 new Claim(ClaimTypes.Email, usuario.Email),
-                new Claim(ClaimTypes.Role, usuario.Role ?? "User")
+                new Claim(ClaimTypes.Role, usuario.Role ?? "User"),
+                new Claim(SessionVersionClaim, usuario.SessaoVersao.ToString(), ClaimValueTypes.Integer32)
             };
 
             var token = new JwtSecurityToken(
