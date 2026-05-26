@@ -10,11 +10,16 @@ namespace Omnimarket.Api.Controllers
     [Route("api/lojas")]
     public class LojasController : ControllerBase
     {
+        private readonly AvaliacaoProdutoService _avaliacaoProdutoService;
         private readonly LojaService _lojaService;
         private readonly ReciboPedidoService _reciboPedidoService;
 
-        public LojasController(LojaService lojaService, ReciboPedidoService reciboPedidoService)
+        public LojasController(
+            AvaliacaoProdutoService avaliacaoProdutoService,
+            LojaService lojaService,
+            ReciboPedidoService reciboPedidoService)
         {
+            _avaliacaoProdutoService = avaliacaoProdutoService;
             _lojaService = lojaService;
             _reciboPedidoService = reciboPedidoService;
         }
@@ -67,6 +72,17 @@ namespace Omnimarket.Api.Controllers
             {
                 return BadRequest(new { mensagem = ex.Message });
             }
+        }
+
+        [HttpGet("{lojaId:int}/avaliacoes")]
+        public async Task<IActionResult> ListarAvaliacoes(
+            int lojaId,
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 10)
+        {
+            var avaliacoes = await _avaliacaoProdutoService.ListarPorLojaAsync(lojaId, page, pageSize);
+
+            return Ok(avaliacoes);
         }
 
         // Cria a loja do usuario autenticado.

@@ -36,6 +36,8 @@ namespace Omnimarket.Api.Models
 
         public DateTime? DataAcesso { get; set; }
 
+        public int SessaoVersao { get; set; }
+
         public DateTime DataCadastro { get; set; } = DateTime.UtcNow;
 
         [NotMapped]

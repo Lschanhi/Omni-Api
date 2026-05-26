@@ -129,6 +129,34 @@ namespace Omnimarket.Api.Services
             };
         }
 
+        public async Task LogoutAsync(int usuarioId)
+        {
+            var usuario = await _context.TBL_USUARIO
+                .FirstOrDefaultAsync(u => u.Id == usuarioId);
+
+            if (usuario == null)
+                throw new UnauthorizedAccessException("Usuario nao autenticado.");
+
+            usuario.SessaoVersao++;
+            usuario.DataAcesso = DateTime.UtcNow;
+
+            await _context.SaveChangesAsync();
+        }
+
+        public async Task<bool> SessaoEstaAtivaAsync(int usuarioId, int sessaoVersaoToken)
+        {
+            var usuario = await _context.TBL_USUARIO
+                .AsNoTracking()
+                .Select(u => new
+                {
+                    u.Id,
+                    u.SessaoVersao
+                })
+                .FirstOrDefaultAsync(u => u.Id == usuarioId);
+
+            return usuario != null && usuario.SessaoVersao == sessaoVersaoToken;
+        }
+
         private static string NormalizarEmail(string email)
         {
             return (email ?? string.Empty).Trim().ToLowerInvariant();

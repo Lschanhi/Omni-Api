@@ -67,6 +67,7 @@ public class AuthServiceTests
         Assert.False(string.IsNullOrWhiteSpace(resposta!.Token));
         Assert.Equal(dto.Email.ToLower().Trim(), resposta.Email);
         Assert.Equal("User", resposta.Role);
+        Assert.NotNull(resposta.TokenExpiraEm);
         Assert.True(resposta.TokenExpiraEm > DateTime.UtcNow);
 
         var jwt = new JwtSecurityTokenHandler().ReadJwtToken(resposta.Token);
@@ -78,6 +79,10 @@ public class AuthServiceTests
         Assert.Contains(jwt.Claims, claim =>
             claim.Type == ClaimTypes.Role &&
             claim.Value == "User");
+
+        Assert.Contains(jwt.Claims, claim =>
+            claim.Type == TokenService.SessionVersionClaim &&
+            claim.Value == "0");
 
         Assert.DoesNotContain(jwt.Claims, claim => claim.Type == "email_confirmed");
     }
@@ -96,5 +101,71 @@ public class AuthServiceTests
         });
 
         Assert.Null(resposta);
+    }
+
+    [Fact]
+    public async Task Login_DevePermitirTokenSemExpiracaoQuandoConfigurado()
+    {
+        using var fixture = new ServiceTestFixture(jwtExpireMinutes: "0");
+        var dto = fixture.CriarRegistroUsuarioDto("daniel");
+        await fixture.AuthService.RegistrarUsuario(dto);
+
+        var resposta = await fixture.AuthService.Login(new LoginDto
+        {
+            Email = dto.Email,
+            Password = ServiceTestFixture.SenhaPadrao
+        });
+
+        Assert.NotNull(resposta);
+        Assert.Null(resposta!.TokenExpiraEm);
+
+        var jwt = new JwtSecurityTokenHandler().ReadJwtToken(resposta.Token);
+        Assert.DoesNotContain(jwt.Claims, claim => claim.Type == "exp");
+    }
+
+    [Fact]
+    public async Task Logout_DeveInvalidarSessaoAtualEGerarNovaVersaoNoProximoLogin()
+    {
+        using var fixture = new ServiceTestFixture();
+        var dto = fixture.CriarRegistroUsuarioDto("eduardo");
+        var usuario = await fixture.AuthService.RegistrarUsuario(dto);
+
+        var primeiroLogin = await fixture.AuthService.Login(new LoginDto
+        {
+            Email = dto.Email,
+            Password = ServiceTestFixture.SenhaPadrao
+        });
+
+        Assert.NotNull(primeiroLogin);
+
+        var primeiroJwt = new JwtSecurityTokenHandler().ReadJwtToken(primeiroLogin!.Token);
+        var sessaoVersaoInicial = primeiroJwt.Claims
+            .Single(claim => claim.Type == TokenService.SessionVersionClaim)
+            .Value;
+
+        Assert.Equal("0", sessaoVersaoInicial);
+        Assert.True(await fixture.AuthService.SessaoEstaAtivaAsync(usuario.Id, 0));
+
+        await fixture.AuthService.LogoutAsync(usuario.Id);
+
+        fixture.Context.ChangeTracker.Clear();
+
+        var usuarioAtualizado = await fixture.Context.TBL_USUARIO.SingleAsync(u => u.Id == usuario.Id);
+        Assert.Equal(1, usuarioAtualizado.SessaoVersao);
+        Assert.False(await fixture.AuthService.SessaoEstaAtivaAsync(usuario.Id, 0));
+
+        var segundoLogin = await fixture.AuthService.Login(new LoginDto
+        {
+            Email = dto.Email,
+            Password = ServiceTestFixture.SenhaPadrao
+        });
+
+        Assert.NotNull(segundoLogin);
+
+        var segundoJwt = new JwtSecurityTokenHandler().ReadJwtToken(segundoLogin!.Token);
+        Assert.Contains(segundoJwt.Claims, claim =>
+            claim.Type == TokenService.SessionVersionClaim &&
+            claim.Value == "1");
+        Assert.True(await fixture.AuthService.SessaoEstaAtivaAsync(usuario.Id, 1));
     }
 }
