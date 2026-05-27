@@ -231,4 +231,162 @@ public class PedidoServiceTests
         Assert.False(string.IsNullOrWhiteSpace(pedido.Itens[0].NomeProduto));
         Assert.False(string.IsNullOrWhiteSpace(pedido.Itens[0].NomeLoja));
     }
+
+    [Fact]
+    public async Task ListarPedidosDaLoja_DeveRetornarPedidoPendenteMesmoSemVendaCriada()
+    {
+        using var fixture = new ServiceTestFixture();
+        var scenario = await fixture.CriarPedidoPendenteAsync();
+        var lojaId = await fixture.Context.TBL_LOJA
+            .Where(l => l.UsuarioId == scenario.VendedorId)
+            .Select(l => l.Id)
+            .SingleAsync();
+
+        var pedidos = await fixture.PedidoService.ListarPedidosDaLojaAsync(
+            lojaId,
+            scenario.VendedorId,
+            busca: null,
+            statusPedido: null,
+            statusVenda: null,
+            page: 1,
+            pageSize: 20);
+
+        var pedido = Assert.Single(pedidos.Items);
+        Assert.Equal(scenario.PedidoId, pedido.PedidoId);
+        Assert.Null(pedido.VendaId);
+        Assert.Null(pedido.StatusVenda);
+        Assert.Equal(StatusPedido.Pendente, pedido.StatusPedido);
+        Assert.True(pedido.PodeCancelar);
+        Assert.False(pedido.PodeMarcarComoEnviado);
+    }
+
+    [Fact]
+    public async Task ListarPedidosDaLoja_DeveFiltrarItensDaLojaEmPedidoMultiloja()
+    {
+        using var fixture = new ServiceTestFixture();
+        var scenario = await fixture.CriarPedidoPagoMultilojaAsync();
+
+        var pedidos = await fixture.PedidoService.ListarPedidosDaLojaAsync(
+            scenario.LojaAId,
+            scenario.VendedorAId,
+            busca: null,
+            statusPedido: null,
+            statusVenda: null,
+            page: 1,
+            pageSize: 20);
+
+        var pedido = Assert.Single(pedidos.Items);
+        var item = Assert.Single(pedido.Itens);
+
+        Assert.Equal(scenario.PedidoId, pedido.PedidoId);
+        Assert.Equal(StatusPedido.Pago, pedido.StatusPedido);
+        Assert.Equal(StatusVenda.Paga, pedido.StatusVenda);
+        Assert.Equal(scenario.ProdutoAId, item.ProdutoId);
+        Assert.Equal(scenario.QuantidadeProdutoA, item.Quantidade);
+        Assert.Equal(50m, pedido.ValorTotalLoja);
+        Assert.True(pedido.PedidoMultiloja);
+        Assert.False(pedido.PodeCancelar);
+        Assert.True(pedido.PodeMarcarComoEnviado);
+    }
+
+    [Fact]
+    public async Task AtualizarStatusPedidoDaLoja_DeveManterPedidoPagoAteTodasAsVendasSeremEnviadas()
+    {
+        using var fixture = new ServiceTestFixture();
+        var scenario = await fixture.CriarPedidoPagoMultilojaAsync();
+
+        var pedidoLojaA = await fixture.PedidoService.AtualizarStatusPedidoDaLojaAsync(
+            scenario.LojaAId,
+            scenario.VendedorAId,
+            scenario.PedidoId,
+            StatusVenda.Enviada);
+
+        Assert.NotNull(pedidoLojaA);
+        Assert.Equal(StatusVenda.Enviada, pedidoLojaA!.StatusVenda);
+        Assert.Equal(StatusPedido.Pago, pedidoLojaA.StatusPedido);
+
+        fixture.Context.ChangeTracker.Clear();
+
+        var vendaLojaA = await fixture.Context.TBL_VENDA
+            .SingleAsync(v => v.PedidoId == scenario.PedidoId && v.VendedorId == scenario.VendedorAId);
+        var vendaLojaB = await fixture.Context.TBL_VENDA
+            .SingleAsync(v => v.PedidoId == scenario.PedidoId && v.VendedorId == scenario.VendedorBId);
+        var pedidoAposPrimeiroEnvio = await fixture.Context.TBL_PEDIDO
+            .SingleAsync(p => p.Id == scenario.PedidoId);
+
+        Assert.Equal(StatusVenda.Enviada, vendaLojaA.StatusVenda);
+        Assert.Equal(StatusVenda.Paga, vendaLojaB.StatusVenda);
+        Assert.Equal(StatusPedido.Pago, pedidoAposPrimeiroEnvio.StatusPedidosId);
+
+        var pedidoLojaB = await fixture.PedidoService.AtualizarStatusPedidoDaLojaAsync(
+            scenario.LojaBId,
+            scenario.VendedorBId,
+            scenario.PedidoId,
+            StatusVenda.Enviada);
+
+        Assert.NotNull(pedidoLojaB);
+        Assert.Equal(StatusPedido.Enviado, pedidoLojaB!.StatusPedido);
+
+        fixture.Context.ChangeTracker.Clear();
+
+        var pedidoEnviado = await fixture.Context.TBL_PEDIDO
+            .SingleAsync(p => p.Id == scenario.PedidoId);
+
+        Assert.Equal(StatusPedido.Enviado, pedidoEnviado.StatusPedidosId);
+    }
+
+    [Fact]
+    public async Task AtualizarStatusPedidoDaLoja_DeveCancelarPedidoMonolojaEEstornarFluxoFinanceiro()
+    {
+        using var fixture = new ServiceTestFixture();
+        var scenario = await fixture.CriarPedidoPagoAsync();
+        var lojaId = await fixture.Context.TBL_LOJA
+            .Where(l => l.UsuarioId == scenario.VendedorId)
+            .Select(l => l.Id)
+            .SingleAsync();
+
+        var pedido = await fixture.PedidoService.AtualizarStatusPedidoDaLojaAsync(
+            lojaId,
+            scenario.VendedorId,
+            scenario.PedidoId,
+            StatusVenda.Cancelada);
+
+        Assert.NotNull(pedido);
+        Assert.Equal(StatusPedido.Cancelado, pedido!.StatusPedido);
+        Assert.Equal(StatusVenda.Cancelada, pedido.StatusVenda);
+
+        fixture.Context.ChangeTracker.Clear();
+
+        var pedidoCancelado = await fixture.Context.TBL_PEDIDO
+            .SingleAsync(p => p.Id == scenario.PedidoId);
+        var vendaCancelada = await fixture.Context.TBL_VENDA
+            .SingleAsync(v => v.PedidoId == scenario.PedidoId);
+        var planoEstornado = await fixture.Context.TBL_PLANO_PAGAMENTO
+            .SingleAsync(p => p.Id == scenario.PlanoPagamentoId);
+        var produto = await fixture.Context.TBL_PRODUTO
+            .SingleAsync(p => p.Id == scenario.ProdutoId);
+
+        Assert.Equal(StatusPedido.Cancelado, pedidoCancelado.StatusPedidosId);
+        Assert.Equal(StatusVenda.Cancelada, vendaCancelada.StatusVenda);
+        Assert.Equal(StatusPagamento.Estornado, planoEstornado.StatusPagamento);
+        Assert.Equal(scenario.EstoqueInicial, produto.Estoque);
+    }
+
+    [Fact]
+    public async Task AtualizarStatusPedidoDaLoja_DeveBloquearCancelamentoDePedidoMultiloja()
+    {
+        using var fixture = new ServiceTestFixture();
+        var scenario = await fixture.CriarPedidoPagoMultilojaAsync();
+
+        var excecao = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.PedidoService.AtualizarStatusPedidoDaLojaAsync(
+                scenario.LojaAId,
+                scenario.VendedorAId,
+                scenario.PedidoId,
+                StatusVenda.Cancelada));
+
+        Assert.Equal(
+            "Cancelamento pela loja ainda nao esta disponivel para pedidos com itens de outras lojas.",
+            excecao.Message);
+    }
 }

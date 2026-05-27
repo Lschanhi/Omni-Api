@@ -10,6 +10,7 @@ global using Omnimarket.Api.Models.Dtos.Pedidos;
 global using Omnimarket.Api.Models.Dtos.Pedidos.Carrinho;
 global using Omnimarket.Api.Models.Dtos.Pedidos.ItemPedido;
 global using Omnimarket.Api.Models.Dtos.Produtos;
+global using Omnimarket.Api.Models.Dtos.Produtos.Lojas;
 global using Omnimarket.Api.Models.Dtos.Produtos.Avaliacoes;
 global using Omnimarket.Api.Models.Dtos.Produtos.Lojas.Entregas;
 global using Omnimarket.Api.Models.Dtos.Usuarios;

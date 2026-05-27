@@ -366,6 +366,85 @@ internal sealed class ServiceTestFixture : IDisposable
             pedidoPago.Quantidade);
     }
 
+    public async Task<PedidoPagoMultilojaScenario> CriarPedidoPagoMultilojaAsync(
+        int quantidadeProdutoA = 1,
+        decimal precoProdutoA = 50m,
+        int estoqueProdutoA = 10,
+        int quantidadeProdutoB = 1,
+        decimal precoProdutoB = 70m,
+        int estoqueProdutoB = 10)
+    {
+        var vendedorA = await CriarUsuarioAsync("vendedor-a");
+        var vendedorB = await CriarUsuarioAsync("vendedor-b");
+        var comprador = await CriarUsuarioAsync("comprador");
+        var endereco = await CriarEnderecoAsync(comprador.Id);
+
+        await CriarLojaAsync(vendedorA.Id, nomeFantasia: "Loja A");
+        await CriarLojaAsync(vendedorB.Id, nomeFantasia: "Loja B");
+
+        var produtoA = await CriarProdutoAsync(vendedorA.Id, precoProdutoA, estoqueProdutoA);
+        var produtoB = await CriarProdutoAsync(vendedorB.Id, precoProdutoB, estoqueProdutoB);
+
+        var pedido = await PedidoService.CriarPedido(
+            comprador.Id,
+            new PedidoDto
+            {
+                EnderecoId = endereco.Id,
+                TipoEntregaId = (int)TipoEntrega.EntregaLocal,
+                Observacao = "Pedido multiloja de teste",
+                Itens =
+                [
+                    new ItemPedidoDto
+                    {
+                        ProdutoId = produtoA.Id,
+                        Quantidade = quantidadeProdutoA
+                    },
+                    new ItemPedidoDto
+                    {
+                        ProdutoId = produtoB.Id,
+                        Quantidade = quantidadeProdutoB
+                    }
+                ]
+            });
+
+        var inicioPagamento = await FinanceiroService.IniciarPagamentoAsync(
+            comprador.Id,
+            new IniciarPagamentoDto
+            {
+                PedidoId = pedido.Id,
+                FormaPagamentoId = 1
+            });
+
+        await FinanceiroService.ConfirmarPagamentoFakeAsync(
+            comprador.Id,
+            inicioPagamento.PlanoPagamentoId);
+
+        var lojaAId = await Context.TBL_LOJA
+            .Where(l => l.UsuarioId == vendedorA.Id)
+            .Select(l => l.Id)
+            .SingleAsync();
+
+        var lojaBId = await Context.TBL_LOJA
+            .Where(l => l.UsuarioId == vendedorB.Id)
+            .Select(l => l.Id)
+            .SingleAsync();
+
+        return new PedidoPagoMultilojaScenario(
+            comprador.Id,
+            vendedorA.Id,
+            vendedorB.Id,
+            lojaAId,
+            lojaBId,
+            produtoA.Id,
+            produtoB.Id,
+            pedido.Id,
+            inicioPagamento.PlanoPagamentoId,
+            estoqueProdutoA,
+            estoqueProdutoB,
+            quantidadeProdutoA,
+            quantidadeProdutoB);
+    }
+
     private void GarantirCadastrosFinanceirosBasicos()
     {
         if (!Context.TBL_FORMA_PAGAMENTO.Any())
@@ -506,3 +585,18 @@ internal sealed record PedidoEntregueScenario(
     decimal TotalPedido,
     int EstoqueInicial,
     int Quantidade);
+
+internal sealed record PedidoPagoMultilojaScenario(
+    int CompradorId,
+    int VendedorAId,
+    int VendedorBId,
+    int LojaAId,
+    int LojaBId,
+    int ProdutoAId,
+    int ProdutoBId,
+    int PedidoId,
+    int PlanoPagamentoId,
+    int EstoqueInicialProdutoA,
+    int EstoqueInicialProdutoB,
+    int QuantidadeProdutoA,
+    int QuantidadeProdutoB);

@@ -4,6 +4,7 @@ using Omnimarket.Api.Data;
 using Omnimarket.Api.Models;
 using Omnimarket.Api.Models.Dtos.Pedidos;
 using Omnimarket.Api.Models.Dtos.Pedidos.ItemPedido;
+using Omnimarket.Api.Models.Dtos.Produtos.Lojas;
 using Omnimarket.Api.Models.Entidades;
 using Omnimarket.Api.Models.Enum;
 using Omnimarket.Api.Utils;
@@ -138,6 +139,76 @@ namespace Omnimarket.Api.Services
             return pedido == null ? null : MapearPedido(pedido);
         }
 
+        public async Task<PageResult<LojaPedidoLeituraDto>> ListarPedidosDaLojaAsync(
+            int lojaId,
+            int vendedorId,
+            string? busca,
+            StatusPedido? statusPedido,
+            StatusVenda? statusVenda,
+            int page,
+            int pageSize)
+        {
+            var query = _context.TBL_PEDIDO
+                .AsNoTracking()
+                .Where(p =>
+                    p.Itens.Any(i => i.Produto.LojaId == lojaId) ||
+                    _context.TBL_VENDA.Any(v => v.PedidoId == p.Id && v.VendedorId == vendedorId));
+
+            if (!string.IsNullOrWhiteSpace(busca))
+            {
+                var termo = busca.Trim();
+                var termoLike = $"%{termo}%";
+                var buscaPedidoId = int.TryParse(termo, out var pedidoIdBusca) ? pedidoIdBusca : (int?)null;
+
+                query = query.Where(p =>
+                    (buscaPedidoId.HasValue && p.Id == buscaPedidoId.Value) ||
+                    EF.Functions.Like(p.Usuario.Nome, termoLike) ||
+                    EF.Functions.Like(p.Usuario.Sobrenome, termoLike) ||
+                    EF.Functions.Like(p.Usuario.Email, termoLike) ||
+                    EF.Functions.Like(p.CidadeEntrega, termoLike));
+            }
+
+            if (statusPedido.HasValue)
+                query = query.Where(p => p.StatusPedidosId == statusPedido.Value);
+
+            if (statusVenda.HasValue)
+            {
+                query = query.Where(p =>
+                    _context.TBL_VENDA.Any(v =>
+                        v.PedidoId == p.Id &&
+                        v.VendedorId == vendedorId &&
+                        v.StatusVenda == statusVenda.Value));
+            }
+
+            var pagina = NormalizarPagina(page);
+            var tamanhoPagina = NormalizarTamanhoPagina(pageSize);
+            var total = await query.CountAsync();
+
+            var pedidoIds = await query
+                .OrderByDescending(p => p.DataPedido)
+                .ThenByDescending(p => p.Id)
+                .Select(p => p.Id)
+                .Skip((pagina - 1) * tamanhoPagina)
+                .Take(tamanhoPagina)
+                .ToListAsync();
+
+            var items = await MapearPedidosDaLojaAsync(lojaId, vendedorId, pedidoIds);
+
+            return new PageResult<LojaPedidoLeituraDto>
+            {
+                Items = items,
+                Total = total,
+                Page = pagina,
+                PageSize = tamanhoPagina
+            };
+        }
+
+        public async Task<LojaPedidoLeituraDto?> BuscarPedidoDaLojaAsync(int lojaId, int vendedorId, int pedidoId)
+        {
+            var pedidos = await MapearPedidosDaLojaAsync(lojaId, vendedorId, [pedidoId]);
+            return pedidos.SingleOrDefault();
+        }
+
         public async Task<List<PedidoLeituraDto>> ListarPedidosUsuario(int usuarioId)
         {
             var pedidos = await _context.TBL_PEDIDO
@@ -149,6 +220,26 @@ namespace Omnimarket.Api.Services
                 .ToListAsync();
 
             return pedidos.Select(MapearPedido).ToList();
+        }
+
+        public async Task<LojaPedidoLeituraDto?> AtualizarStatusPedidoDaLojaAsync(
+            int lojaId,
+            int vendedorId,
+            int pedidoId,
+            StatusVenda novoStatus)
+        {
+            var pedidoEncontrado = novoStatus switch
+            {
+                StatusVenda.Enviada => await MarcarPedidoDaLojaComoEnviadoAsync(lojaId, vendedorId, pedidoId),
+                StatusVenda.Cancelada => await CancelarPedidoDaLojaAsync(lojaId, vendedorId, pedidoId),
+                _ => throw new InvalidOperationException(
+                    "A loja pode atualizar apenas para os status Enviada ou Cancelada.")
+            };
+
+            if (!pedidoEncontrado)
+                return null;
+
+            return await BuscarPedidoDaLojaAsync(lojaId, vendedorId, pedidoId);
         }
 
         public async Task<bool> CancelarPedido(int pedidoId, int usuarioId)
@@ -194,6 +285,122 @@ namespace Omnimarket.Api.Services
                     pedido,
                     usuarioId,
                     "cancelamento-cliente");
+
+                await transaction.CommitAsync();
+                return true;
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                await transaction.RollbackAsync();
+                throw new InvalidOperationException(
+                    "O estoque de um ou mais produtos foi alterado durante o cancelamento. Tente novamente.");
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
+        }
+
+        private async Task<bool> MarcarPedidoDaLojaComoEnviadoAsync(int lojaId, int vendedorId, int pedidoId)
+        {
+            var venda = await _context.TBL_VENDA
+                .Include(v => v.Pedido)
+                .FirstOrDefaultAsync(v => v.PedidoId == pedidoId && v.VendedorId == vendedorId);
+
+            if (venda == null)
+            {
+                var pedidoPertenceLoja = await PedidoPertenceLojaAsync(pedidoId, lojaId, vendedorId);
+                if (!pedidoPertenceLoja)
+                    return false;
+
+                throw new InvalidOperationException("Somente pedidos pagos podem seguir para envio pela loja.");
+            }
+
+            if (venda.Pedido.StatusPedidosId == StatusPedido.Cancelado || venda.StatusVenda == StatusVenda.Cancelada)
+                throw new InvalidOperationException("Pedido cancelado nao pode ser enviado pela loja.");
+
+            if (venda.StatusVenda == StatusVenda.Enviada)
+                throw new InvalidOperationException("A sua loja ja marcou este pedido como enviado.");
+
+            if (venda.StatusVenda == StatusVenda.Concluida)
+                throw new InvalidOperationException("Pedido ja foi concluido para a sua loja.");
+
+            if (venda.StatusVenda != StatusVenda.Paga)
+                throw new InvalidOperationException("Somente pedidos pagos podem seguir para envio pela loja.");
+
+            var agora = DateTime.UtcNow;
+            venda.StatusVenda = StatusVenda.Enviada;
+            venda.DataAtualizacao = agora;
+
+            var vendasDoPedido = await _context.TBL_VENDA
+                .Where(v => v.PedidoId == pedidoId)
+                .ToListAsync();
+
+            if (vendasDoPedido.All(v =>
+                v.StatusVenda == StatusVenda.Enviada ||
+                v.StatusVenda == StatusVenda.Concluida))
+            {
+                venda.Pedido.StatusPedidosId = StatusPedido.Enviado;
+            }
+
+            await _context.SaveChangesAsync();
+            return true;
+        }
+
+        private async Task<bool> CancelarPedidoDaLojaAsync(int lojaId, int vendedorId, int pedidoId)
+        {
+            var pedido = await _context.TBL_PEDIDO
+                .Include(p => p.Itens)
+                .ThenInclude(i => i.Produto)
+                .FirstOrDefaultAsync(p =>
+                    p.Id == pedidoId &&
+                    (p.Itens.Any(i => i.Produto.LojaId == lojaId) ||
+                     _context.TBL_VENDA.Any(v => v.PedidoId == p.Id && v.VendedorId == vendedorId)));
+
+            if (pedido == null)
+                return false;
+
+            var venda = await _context.TBL_VENDA
+                .FirstOrDefaultAsync(v => v.PedidoId == pedidoId && v.VendedorId == vendedorId);
+
+            if (pedido.StatusPedidosId == StatusPedido.Cancelado || venda?.StatusVenda == StatusVenda.Cancelada)
+                throw new InvalidOperationException("Este pedido ja esta cancelado.");
+
+            if (pedido.Itens
+                .Where(i => i.Produto != null)
+                .Select(i => i.Produto.LojaId)
+                .Distinct()
+                .Count() > 1)
+            {
+                throw new InvalidOperationException(
+                    "Cancelamento pela loja ainda nao esta disponivel para pedidos com itens de outras lojas.");
+            }
+
+            if (pedido.StatusPedidosId == StatusPedido.Enviado ||
+                pedido.StatusPedidosId == StatusPedido.Entregue ||
+                venda?.StatusVenda == StatusVenda.Enviada ||
+                venda?.StatusVenda == StatusVenda.Concluida)
+            {
+                throw new InvalidOperationException(
+                    "Pedido enviado ou concluido nao pode ser cancelado pela loja.");
+            }
+
+            if (pedido.StatusPedidosId != StatusPedido.Pendente &&
+                pedido.StatusPedidosId != StatusPedido.Pago)
+            {
+                throw new InvalidOperationException(
+                    "Somente pedidos pendentes ou pagos podem ser cancelados pela loja.");
+            }
+
+            await using var transaction = await _context.Database.BeginTransactionAsync();
+
+            try
+            {
+                await CancelarPedidoInternoAsync(
+                    pedido,
+                    vendedorId,
+                    "cancelamento-loja");
 
                 await transaction.CommitAsync();
                 return true;
@@ -384,6 +591,145 @@ namespace Omnimarket.Api.Services
                 throw new Exception("Nenhum endereco de entrega foi encontrado para o usuario.");
 
             return enderecoPadrao;
+        }
+
+        private async Task<List<LojaPedidoLeituraDto>> MapearPedidosDaLojaAsync(
+            int lojaId,
+            int vendedorId,
+            IReadOnlyCollection<int> pedidoIds)
+        {
+            if (pedidoIds.Count == 0)
+                return [];
+
+            var pedidos = await _context.TBL_PEDIDO
+                .AsNoTracking()
+                .Where(p => pedidoIds.Contains(p.Id))
+                .Include(p => p.Usuario)
+                .Include(p => p.Itens)
+                .ThenInclude(i => i.Produto)
+                .ToListAsync();
+
+            var vendas = await _context.TBL_VENDA
+                .AsNoTracking()
+                .Where(v => pedidoIds.Contains(v.PedidoId) && v.VendedorId == vendedorId)
+                .ToListAsync();
+
+            var pedidosPorId = pedidos.ToDictionary(p => p.Id);
+            var vendasPorPedidoId = vendas.ToDictionary(v => v.PedidoId);
+            var resultados = new List<LojaPedidoLeituraDto>(pedidoIds.Count);
+
+            foreach (var pedidoId in pedidoIds)
+            {
+                if (!pedidosPorId.TryGetValue(pedidoId, out var pedido))
+                    continue;
+
+                vendasPorPedidoId.TryGetValue(pedidoId, out var venda);
+                var dto = MapearPedidoDaLoja(pedido, venda, lojaId);
+
+                if (dto != null)
+                    resultados.Add(dto);
+            }
+
+            return resultados;
+        }
+
+        private static LojaPedidoLeituraDto? MapearPedidoDaLoja(Pedido pedido, Venda? venda, int lojaId)
+        {
+            var itensDaLoja = pedido.Itens
+                .Where(i => i.Produto?.LojaId == lojaId)
+                .OrderBy(i => i.Id)
+                .ToList();
+
+            if (itensDaLoja.Count == 0)
+                return null;
+
+            var pedidoMultiloja = pedido.Itens
+                .Where(i => i.Produto != null)
+                .Select(i => i.Produto!.LojaId)
+                .Distinct()
+                .Count() > 1;
+
+            return new LojaPedidoLeituraDto
+            {
+                PedidoId = pedido.Id,
+                VendaId = venda?.Id,
+                LojaId = lojaId,
+                NomeLoja = itensDaLoja[0].NomeLojaSnapshot,
+                ClienteId = pedido.UsuarioId,
+                NomeCliente = $"{pedido.Usuario.Nome} {pedido.Usuario.Sobrenome}".Trim(),
+                EmailCliente = pedido.Usuario.Email,
+                StatusPedido = pedido.StatusPedidosId,
+                StatusVenda = venda?.StatusVenda,
+                TipoEntrega = EntregaHelper.ObterNomeTipoEntrega(pedido.TipoEntregaId),
+                ValorTotalPedido = pedido.ValorTotalPedido,
+                ValorTotalLoja = itensDaLoja.Sum(i => i.ValorTotal),
+                QuantidadeItens = itensDaLoja.Sum(i => i.Quantidade),
+                DataPedido = pedido.DataPedido,
+                Observacao = pedido.Observacao,
+                TipoLogradouroEntrega = pedido.TipoLogradouroEntrega,
+                NomeEnderecoEntrega = pedido.NomeEnderecoEntrega,
+                NumeroEntrega = pedido.NumeroEntrega,
+                ComplementoEntrega = pedido.ComplementoEntrega,
+                CepEntrega = pedido.CepEntrega,
+                CidadeEntrega = pedido.CidadeEntrega,
+                UfEntrega = pedido.UfEntrega,
+                PedidoMultiloja = pedidoMultiloja,
+                PodeCancelar = PodeLojaCancelarPedido(pedido, venda, pedidoMultiloja),
+                PodeMarcarComoEnviado = venda?.StatusVenda == StatusVenda.Paga &&
+                    pedido.StatusPedidosId != StatusPedido.Cancelado,
+                Itens = itensDaLoja
+                    .Select(i => new LojaPedidoItemLeituraDto
+                    {
+                        Id = i.Id,
+                        ProdutoId = i.ProdutoId,
+                        NomeProduto = i.NomeProdutoSnapshot,
+                        Quantidade = i.Quantidade,
+                        PrecoUnitario = i.PrecoUnitario,
+                        ValorTotal = i.ValorTotal
+                    })
+                    .ToList()
+            };
+        }
+
+        private static bool PodeLojaCancelarPedido(Pedido pedido, Venda? venda, bool pedidoMultiloja)
+        {
+            if (pedidoMultiloja)
+                return false;
+
+            if (pedido.StatusPedidosId != StatusPedido.Pendente &&
+                pedido.StatusPedidosId != StatusPedido.Pago)
+            {
+                return false;
+            }
+
+            return venda?.StatusVenda switch
+            {
+                StatusVenda.Enviada => false,
+                StatusVenda.Concluida => false,
+                StatusVenda.Cancelada => false,
+                _ => true
+            };
+        }
+
+        private async Task<bool> PedidoPertenceLojaAsync(int pedidoId, int lojaId, int vendedorId)
+        {
+            return await _context.TBL_PEDIDO
+                .AsNoTracking()
+                .AnyAsync(p =>
+                    p.Id == pedidoId &&
+                    (p.Itens.Any(i => i.Produto.LojaId == lojaId) ||
+                     _context.TBL_VENDA.Any(v => v.PedidoId == p.Id && v.VendedorId == vendedorId)));
+        }
+
+        private static int NormalizarPagina(int page)
+            => page < 1 ? 1 : page;
+
+        private static int NormalizarTamanhoPagina(int pageSize)
+        {
+            if (pageSize < 1)
+                return 20;
+
+            return pageSize > 100 ? 100 : pageSize;
         }
 
         private static PedidoLeituraDto MapearPedido(Pedido pedido)
