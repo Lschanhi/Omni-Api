@@ -67,8 +67,7 @@ public class AuthServiceTests
         Assert.False(string.IsNullOrWhiteSpace(resposta!.Token));
         Assert.Equal(dto.Email.ToLower().Trim(), resposta.Email);
         Assert.Equal("User", resposta.Role);
-        Assert.NotNull(resposta.TokenExpiraEm);
-        Assert.True(resposta.TokenExpiraEm > DateTime.UtcNow);
+        Assert.Null(resposta.TokenExpiraEm);
 
         var jwt = new JwtSecurityTokenHandler().ReadJwtToken(resposta.Token);
 
@@ -85,6 +84,7 @@ public class AuthServiceTests
             claim.Value == "0");
 
         Assert.DoesNotContain(jwt.Claims, claim => claim.Type == "email_confirmed");
+        Assert.DoesNotContain(jwt.Claims, claim => claim.Type == "exp");
     }
 
     [Fact]
@@ -104,9 +104,9 @@ public class AuthServiceTests
     }
 
     [Fact]
-    public async Task Login_DevePermitirTokenSemExpiracaoQuandoConfigurado()
+    public async Task Login_DeveGerarTokenSemExpiracaoMesmoQuandoHouverConfiguracaoDeTempo()
     {
-        using var fixture = new ServiceTestFixture(jwtExpireMinutes: "0");
+        using var fixture = new ServiceTestFixture(jwtExpireMinutes: "60");
         var dto = fixture.CriarRegistroUsuarioDto("daniel");
         await fixture.AuthService.RegistrarUsuario(dto);
 

@@ -19,16 +19,6 @@ namespace Omnimarket.Api.Services
 
         public (string token, DateTime? expiraEmUtc) GerarToken(Usuario usuario)
         {
-            DateTime? expiraEmUtc = null;
-            var expireConfig = _configuration["Jwt:ExpireMinutes"];
-
-            if (!string.IsNullOrWhiteSpace(expireConfig) &&
-                double.TryParse(expireConfig, out var parsedExpireMinutes) &&
-                parsedExpireMinutes > 0)
-            {
-                expiraEmUtc = DateTime.UtcNow.AddMinutes(parsedExpireMinutes);
-            }
-
             var key = new SymmetricSecurityKey(
                 Encoding.UTF8.GetBytes(_configuration["Jwt:Key"]!)
             );
@@ -47,11 +37,11 @@ namespace Omnimarket.Api.Services
                 issuer: _configuration["Jwt:Issuer"],
                 audience: _configuration["Jwt:Audience"],
                 claims: claims,
-                expires: expiraEmUtc,
+                expires: null,
                 signingCredentials: creds
             );
 
-            return (new JwtSecurityTokenHandler().WriteToken(token), expiraEmUtc);
+            return (new JwtSecurityTokenHandler().WriteToken(token), null);
         }
     }
 }
