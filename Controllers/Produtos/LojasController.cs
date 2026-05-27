@@ -126,9 +126,14 @@ namespace Omnimarket.Api.Controllers
                 if (pedido == null)
                     return NotFound(new { mensagem = "Pedido nao encontrado para a sua loja." });
 
-                var mensagem = dto.StatusVenda == StatusVenda.Cancelada
-                    ? "Pedido cancelado com sucesso pela loja!"
-                    : "Pedido marcado como enviado com sucesso pela loja!";
+                var mensagem = dto.StatusVenda switch
+                {
+                    StatusVenda.EmSeparacao => "Pedido aceito e movido para separacao com sucesso pela loja!",
+                    StatusVenda.Pronto => "Pedido marcado como pronto com sucesso pela loja!",
+                    StatusVenda.Enviada => "Pedido marcado como enviado com sucesso pela loja!",
+                    StatusVenda.Cancelada => "Pedido cancelado com sucesso pela loja!",
+                    _ => "Status atualizado com sucesso pela loja!"
+                };
 
                 return Ok(new
                 {

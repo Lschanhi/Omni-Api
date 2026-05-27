@@ -257,6 +257,8 @@ public class PedidoServiceTests
         Assert.Null(pedido.StatusVenda);
         Assert.Equal(StatusPedido.Pendente, pedido.StatusPedido);
         Assert.True(pedido.PodeCancelar);
+        Assert.False(pedido.PodeAceitar);
+        Assert.False(pedido.PodeMarcarComoPronto);
         Assert.False(pedido.PodeMarcarComoEnviado);
     }
 
@@ -280,13 +282,68 @@ public class PedidoServiceTests
 
         Assert.Equal(scenario.PedidoId, pedido.PedidoId);
         Assert.Equal(StatusPedido.Pago, pedido.StatusPedido);
-        Assert.Equal(StatusVenda.Paga, pedido.StatusVenda);
+        Assert.Equal(StatusVenda.Pendente, pedido.StatusVenda);
         Assert.Equal(scenario.ProdutoAId, item.ProdutoId);
         Assert.Equal(scenario.QuantidadeProdutoA, item.Quantidade);
         Assert.Equal(50m, pedido.ValorTotalLoja);
         Assert.True(pedido.PedidoMultiloja);
         Assert.False(pedido.PodeCancelar);
-        Assert.True(pedido.PodeMarcarComoEnviado);
+        Assert.True(pedido.PodeAceitar);
+        Assert.False(pedido.PodeMarcarComoPronto);
+        Assert.False(pedido.PodeMarcarComoEnviado);
+    }
+
+    [Fact]
+    public async Task AtualizarStatusPedidoDaLoja_DeveAvancarFluxoOperacionalDaLojaPassoAPasso()
+    {
+        using var fixture = new ServiceTestFixture();
+        var scenario = await fixture.CriarPedidoPagoAsync();
+        var lojaId = await fixture.Context.TBL_LOJA
+            .Where(l => l.UsuarioId == scenario.VendedorId)
+            .Select(l => l.Id)
+            .SingleAsync();
+
+        var pedidoEmSeparacao = await fixture.PedidoService.AtualizarStatusPedidoDaLojaAsync(
+            lojaId,
+            scenario.VendedorId,
+            scenario.PedidoId,
+            StatusVenda.EmSeparacao);
+
+        Assert.NotNull(pedidoEmSeparacao);
+        Assert.Equal(StatusVenda.EmSeparacao, pedidoEmSeparacao!.StatusVenda);
+        Assert.True(pedidoEmSeparacao.PodeMarcarComoPronto);
+        Assert.False(pedidoEmSeparacao.PodeMarcarComoEnviado);
+
+        var pedidoPronto = await fixture.PedidoService.AtualizarStatusPedidoDaLojaAsync(
+            lojaId,
+            scenario.VendedorId,
+            scenario.PedidoId,
+            StatusVenda.Pronto);
+
+        Assert.NotNull(pedidoPronto);
+        Assert.Equal(StatusVenda.Pronto, pedidoPronto!.StatusVenda);
+        Assert.False(pedidoPronto.PodeMarcarComoPronto);
+        Assert.True(pedidoPronto.PodeMarcarComoEnviado);
+
+        var pedidoEnviado = await fixture.PedidoService.AtualizarStatusPedidoDaLojaAsync(
+            lojaId,
+            scenario.VendedorId,
+            scenario.PedidoId,
+            StatusVenda.Enviada);
+
+        Assert.NotNull(pedidoEnviado);
+        Assert.Equal(StatusVenda.Enviada, pedidoEnviado!.StatusVenda);
+        Assert.Equal(StatusPedido.Enviado, pedidoEnviado.StatusPedido);
+
+        fixture.Context.ChangeTracker.Clear();
+
+        var venda = await fixture.Context.TBL_VENDA
+            .SingleAsync(v => v.PedidoId == scenario.PedidoId);
+        var pedido = await fixture.Context.TBL_PEDIDO
+            .SingleAsync(p => p.Id == scenario.PedidoId);
+
+        Assert.Equal(StatusVenda.Enviada, venda.StatusVenda);
+        Assert.Equal(StatusPedido.Enviado, pedido.StatusPedidosId);
     }
 
     [Fact]
@@ -294,6 +351,18 @@ public class PedidoServiceTests
     {
         using var fixture = new ServiceTestFixture();
         var scenario = await fixture.CriarPedidoPagoMultilojaAsync();
+
+        await fixture.PedidoService.AtualizarStatusPedidoDaLojaAsync(
+            scenario.LojaAId,
+            scenario.VendedorAId,
+            scenario.PedidoId,
+            StatusVenda.EmSeparacao);
+
+        await fixture.PedidoService.AtualizarStatusPedidoDaLojaAsync(
+            scenario.LojaAId,
+            scenario.VendedorAId,
+            scenario.PedidoId,
+            StatusVenda.Pronto);
 
         var pedidoLojaA = await fixture.PedidoService.AtualizarStatusPedidoDaLojaAsync(
             scenario.LojaAId,
@@ -315,8 +384,20 @@ public class PedidoServiceTests
             .SingleAsync(p => p.Id == scenario.PedidoId);
 
         Assert.Equal(StatusVenda.Enviada, vendaLojaA.StatusVenda);
-        Assert.Equal(StatusVenda.Paga, vendaLojaB.StatusVenda);
+        Assert.Equal(StatusVenda.Pendente, vendaLojaB.StatusVenda);
         Assert.Equal(StatusPedido.Pago, pedidoAposPrimeiroEnvio.StatusPedidosId);
+
+        await fixture.PedidoService.AtualizarStatusPedidoDaLojaAsync(
+            scenario.LojaBId,
+            scenario.VendedorBId,
+            scenario.PedidoId,
+            StatusVenda.EmSeparacao);
+
+        await fixture.PedidoService.AtualizarStatusPedidoDaLojaAsync(
+            scenario.LojaBId,
+            scenario.VendedorBId,
+            scenario.PedidoId,
+            StatusVenda.Pronto);
 
         var pedidoLojaB = await fixture.PedidoService.AtualizarStatusPedidoDaLojaAsync(
             scenario.LojaBId,
@@ -333,6 +414,26 @@ public class PedidoServiceTests
             .SingleAsync(p => p.Id == scenario.PedidoId);
 
         Assert.Equal(StatusPedido.Enviado, pedidoEnviado.StatusPedidosId);
+    }
+
+    [Fact]
+    public async Task AtualizarStatusPedidoDaLoja_DeveBloquearEnvioAntesDoPedidoEstarPronto()
+    {
+        using var fixture = new ServiceTestFixture();
+        var scenario = await fixture.CriarPedidoPagoAsync();
+        var lojaId = await fixture.Context.TBL_LOJA
+            .Where(l => l.UsuarioId == scenario.VendedorId)
+            .Select(l => l.Id)
+            .SingleAsync();
+
+        var excecao = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.PedidoService.AtualizarStatusPedidoDaLojaAsync(
+                lojaId,
+                scenario.VendedorId,
+                scenario.PedidoId,
+                StatusVenda.Enviada));
+
+        Assert.Equal("Somente pedidos prontos podem seguir para envio pela loja.", excecao.Message);
     }
 
     [Fact]

@@ -173,11 +173,12 @@ namespace Omnimarket.Api.Services
 
             if (statusVenda.HasValue)
             {
+                var statusVendasFiltro = ObterStatusVendaPersistidosParaFiltro(statusVenda.Value);
                 query = query.Where(p =>
                     _context.TBL_VENDA.Any(v =>
                         v.PedidoId == p.Id &&
                         v.VendedorId == vendedorId &&
-                        v.StatusVenda == statusVenda.Value));
+                        statusVendasFiltro.Contains(v.StatusVenda)));
             }
 
             var pagina = NormalizarPagina(page);
@@ -230,10 +231,12 @@ namespace Omnimarket.Api.Services
         {
             var pedidoEncontrado = novoStatus switch
             {
+                StatusVenda.EmSeparacao => await AceitarPedidoDaLojaAsync(lojaId, vendedorId, pedidoId),
+                StatusVenda.Pronto => await MarcarPedidoDaLojaComoProntoAsync(lojaId, vendedorId, pedidoId),
                 StatusVenda.Enviada => await MarcarPedidoDaLojaComoEnviadoAsync(lojaId, vendedorId, pedidoId),
                 StatusVenda.Cancelada => await CancelarPedidoDaLojaAsync(lojaId, vendedorId, pedidoId),
                 _ => throw new InvalidOperationException(
-                    "A loja pode atualizar apenas para os status Enviada ou Cancelada.")
+                    "A loja pode atualizar apenas para os status EmSeparacao, Pronto, Enviada ou Cancelada.")
             };
 
             if (!pedidoEncontrado)
@@ -302,32 +305,106 @@ namespace Omnimarket.Api.Services
             }
         }
 
-        private async Task<bool> MarcarPedidoDaLojaComoEnviadoAsync(int lojaId, int vendedorId, int pedidoId)
+        private async Task<bool> AceitarPedidoDaLojaAsync(int lojaId, int vendedorId, int pedidoId)
         {
-            var venda = await _context.TBL_VENDA
-                .Include(v => v.Pedido)
-                .FirstOrDefaultAsync(v => v.PedidoId == pedidoId && v.VendedorId == vendedorId);
+            var venda = await BuscarVendaDaLojaParaAtualizacaoAsync(
+                lojaId,
+                vendedorId,
+                pedidoId,
+                "Somente pedidos pagos e pendentes de aceite podem entrar em separacao.");
 
             if (venda == null)
-            {
-                var pedidoPertenceLoja = await PedidoPertenceLojaAsync(pedidoId, lojaId, vendedorId);
-                if (!pedidoPertenceLoja)
-                    return false;
+                return false;
 
-                throw new InvalidOperationException("Somente pedidos pagos podem seguir para envio pela loja.");
-            }
+            if (venda.Pedido.StatusPedidosId == StatusPedido.Cancelado || venda.StatusVenda == StatusVenda.Cancelada)
+                throw new InvalidOperationException("Pedido cancelado nao pode ser aceito pela loja.");
+
+            if (venda.Pedido.StatusPedidosId != StatusPedido.Pago)
+                throw new InvalidOperationException("Somente pedidos pagos podem ser aceitos pela loja.");
+
+            var statusAtual = ObterStatusVendaOperacional(venda.StatusVenda);
+
+            if (statusAtual == StatusVenda.EmSeparacao)
+                throw new InvalidOperationException("A sua loja ja colocou este pedido em separacao.");
+
+            if (statusAtual == StatusVenda.Pronto)
+                throw new InvalidOperationException("A sua loja ja marcou este pedido como pronto.");
+
+            if (statusAtual == StatusVenda.Enviada)
+                throw new InvalidOperationException("A sua loja ja marcou este pedido como enviado.");
+
+            if (statusAtual == StatusVenda.Concluida)
+                throw new InvalidOperationException("Pedido ja foi concluido para a sua loja.");
+
+            if (statusAtual != StatusVenda.Pendente)
+                throw new InvalidOperationException("Somente pedidos pendentes podem ser aceitos pela loja.");
+
+            venda.StatusVenda = StatusVenda.EmSeparacao;
+            venda.DataAtualizacao = DateTime.UtcNow;
+
+            await _context.SaveChangesAsync();
+            return true;
+        }
+
+        private async Task<bool> MarcarPedidoDaLojaComoProntoAsync(int lojaId, int vendedorId, int pedidoId)
+        {
+            var venda = await BuscarVendaDaLojaParaAtualizacaoAsync(
+                lojaId,
+                vendedorId,
+                pedidoId,
+                "Somente pedidos em separacao podem ser marcados como prontos.");
+
+            if (venda == null)
+                return false;
+
+            if (venda.Pedido.StatusPedidosId == StatusPedido.Cancelado || venda.StatusVenda == StatusVenda.Cancelada)
+                throw new InvalidOperationException("Pedido cancelado nao pode ser marcado como pronto pela loja.");
+
+            var statusAtual = ObterStatusVendaOperacional(venda.StatusVenda);
+
+            if (statusAtual == StatusVenda.Pronto)
+                throw new InvalidOperationException("A sua loja ja marcou este pedido como pronto.");
+
+            if (statusAtual == StatusVenda.Enviada)
+                throw new InvalidOperationException("A sua loja ja marcou este pedido como enviado.");
+
+            if (statusAtual == StatusVenda.Concluida)
+                throw new InvalidOperationException("Pedido ja foi concluido para a sua loja.");
+
+            if (statusAtual != StatusVenda.EmSeparacao)
+                throw new InvalidOperationException("Somente pedidos em separacao podem ser marcados como prontos.");
+
+            venda.StatusVenda = StatusVenda.Pronto;
+            venda.DataAtualizacao = DateTime.UtcNow;
+
+            await _context.SaveChangesAsync();
+            return true;
+        }
+
+        private async Task<bool> MarcarPedidoDaLojaComoEnviadoAsync(int lojaId, int vendedorId, int pedidoId)
+        {
+            var venda = await BuscarVendaDaLojaParaAtualizacaoAsync(
+                lojaId,
+                vendedorId,
+                pedidoId,
+                "Somente pedidos prontos podem seguir para envio pela loja.");
+
+            if (venda == null)
+                return false;
 
             if (venda.Pedido.StatusPedidosId == StatusPedido.Cancelado || venda.StatusVenda == StatusVenda.Cancelada)
                 throw new InvalidOperationException("Pedido cancelado nao pode ser enviado pela loja.");
 
-            if (venda.StatusVenda == StatusVenda.Enviada)
+            var statusAtual = ObterStatusVendaOperacional(venda.StatusVenda);
+
+            if (statusAtual == StatusVenda.Enviada)
                 throw new InvalidOperationException("A sua loja ja marcou este pedido como enviado.");
 
-            if (venda.StatusVenda == StatusVenda.Concluida)
+            if (statusAtual == StatusVenda.Concluida)
                 throw new InvalidOperationException("Pedido ja foi concluido para a sua loja.");
 
-            if (venda.StatusVenda != StatusVenda.Paga)
-                throw new InvalidOperationException("Somente pedidos pagos podem seguir para envio pela loja.");
+            if (statusAtual != StatusVenda.Pronto)
+                throw new InvalidOperationException("Somente pedidos prontos podem seguir para envio pela loja.");
 
             var agora = DateTime.UtcNow;
             venda.StatusVenda = StatusVenda.Enviada;
@@ -379,8 +456,8 @@ namespace Omnimarket.Api.Services
 
             if (pedido.StatusPedidosId == StatusPedido.Enviado ||
                 pedido.StatusPedidosId == StatusPedido.Entregue ||
-                venda?.StatusVenda == StatusVenda.Enviada ||
-                venda?.StatusVenda == StatusVenda.Concluida)
+                ObterStatusVendaOperacional(venda?.StatusVenda) == StatusVenda.Enviada ||
+                ObterStatusVendaOperacional(venda?.StatusVenda) == StatusVenda.Concluida)
             {
                 throw new InvalidOperationException(
                     "Pedido enviado ou concluido nao pode ser cancelado pela loja.");
@@ -438,8 +515,22 @@ namespace Omnimarket.Api.Services
             if (pedido.StatusPedidosId != StatusPedido.Pago)
                 throw new InvalidOperationException("Somente pedidos pagos podem seguir para envio.");
 
+            var vendas = await _context.TBL_VENDA
+                .Where(v => v.PedidoId == pedidoId)
+                .ToListAsync();
+
+            var agora = DateTime.UtcNow;
+
+            foreach (var venda in vendas)
+            {
+                if (venda.StatusVenda == StatusVenda.Cancelada || venda.StatusVenda == StatusVenda.Concluida)
+                    continue;
+
+                venda.StatusVenda = StatusVenda.Enviada;
+                venda.DataAtualizacao = agora;
+            }
+
             pedido.StatusPedidosId = StatusPedido.Enviado;
-            await AtualizarStatusVendasDoPedidoAsync(pedidoId, StatusVenda.Enviada);
             await _context.SaveChangesAsync();
 
             return pedido;
@@ -463,7 +554,22 @@ namespace Omnimarket.Api.Services
                 throw new InvalidOperationException("Somente pedidos enviados podem ser confirmados como entregues.");
 
             pedido.StatusPedidosId = StatusPedido.Entregue;
-            await AtualizarStatusVendasDoPedidoAsync(pedidoId, StatusVenda.Concluida);
+
+            var vendas = await _context.TBL_VENDA
+                .Where(v => v.PedidoId == pedidoId)
+                .ToListAsync();
+
+            var agora = DateTime.UtcNow;
+
+            foreach (var venda in vendas)
+            {
+                if (venda.StatusVenda == StatusVenda.Cancelada || venda.StatusVenda == StatusVenda.Concluida)
+                    continue;
+
+                venda.StatusVenda = StatusVenda.Concluida;
+                venda.DataAtualizacao = agora;
+            }
+
             await _context.SaveChangesAsync();
 
             return pedido;
@@ -649,6 +755,8 @@ namespace Omnimarket.Api.Services
                 .Distinct()
                 .Count() > 1;
 
+            var statusVenda = ObterStatusVendaDaLojaParaExibicao(venda?.StatusVenda);
+
             return new LojaPedidoLeituraDto
             {
                 PedidoId = pedido.Id,
@@ -659,7 +767,7 @@ namespace Omnimarket.Api.Services
                 NomeCliente = $"{pedido.Usuario.Nome} {pedido.Usuario.Sobrenome}".Trim(),
                 EmailCliente = pedido.Usuario.Email,
                 StatusPedido = pedido.StatusPedidosId,
-                StatusVenda = venda?.StatusVenda,
+                StatusVenda = statusVenda,
                 TipoEntrega = EntregaHelper.ObterNomeTipoEntrega(pedido.TipoEntregaId),
                 ValorTotalPedido = pedido.ValorTotalPedido,
                 ValorTotalLoja = itensDaLoja.Sum(i => i.ValorTotal),
@@ -675,8 +783,9 @@ namespace Omnimarket.Api.Services
                 UfEntrega = pedido.UfEntrega,
                 PedidoMultiloja = pedidoMultiloja,
                 PodeCancelar = PodeLojaCancelarPedido(pedido, venda, pedidoMultiloja),
-                PodeMarcarComoEnviado = venda?.StatusVenda == StatusVenda.Paga &&
-                    pedido.StatusPedidosId != StatusPedido.Cancelado,
+                PodeAceitar = PodeLojaAceitarPedido(pedido, venda),
+                PodeMarcarComoPronto = PodeLojaMarcarPedidoComoPronto(pedido, venda),
+                PodeMarcarComoEnviado = PodeLojaMarcarPedidoComoEnviado(pedido, venda),
                 Itens = itensDaLoja
                     .Select(i => new LojaPedidoItemLeituraDto
                     {
@@ -702,12 +811,86 @@ namespace Omnimarket.Api.Services
                 return false;
             }
 
-            return venda?.StatusVenda switch
+            return ObterStatusVendaOperacional(venda?.StatusVenda) switch
             {
                 StatusVenda.Enviada => false,
                 StatusVenda.Concluida => false,
                 StatusVenda.Cancelada => false,
                 _ => true
+            };
+        }
+
+        private static bool PodeLojaAceitarPedido(Pedido pedido, Venda? venda)
+        {
+            if (pedido.StatusPedidosId != StatusPedido.Pago || venda == null)
+                return false;
+
+            return ObterStatusVendaOperacional(venda.StatusVenda) == StatusVenda.Pendente;
+        }
+
+        private static bool PodeLojaMarcarPedidoComoPronto(Pedido pedido, Venda? venda)
+        {
+            if (pedido.StatusPedidosId == StatusPedido.Cancelado || venda == null)
+                return false;
+
+            return ObterStatusVendaOperacional(venda.StatusVenda) == StatusVenda.EmSeparacao;
+        }
+
+        private static bool PodeLojaMarcarPedidoComoEnviado(Pedido pedido, Venda? venda)
+        {
+            if (pedido.StatusPedidosId == StatusPedido.Cancelado || venda == null)
+                return false;
+
+            return ObterStatusVendaOperacional(venda.StatusVenda) == StatusVenda.Pronto;
+        }
+
+        private async Task<Venda?> BuscarVendaDaLojaParaAtualizacaoAsync(
+            int lojaId,
+            int vendedorId,
+            int pedidoId,
+            string mensagemQuandoSemVenda)
+        {
+            var venda = await _context.TBL_VENDA
+                .Include(v => v.Pedido)
+                .FirstOrDefaultAsync(v => v.PedidoId == pedidoId && v.VendedorId == vendedorId);
+
+            if (venda != null)
+                return venda;
+
+            var pedidoPertenceLoja = await PedidoPertenceLojaAsync(pedidoId, lojaId, vendedorId);
+            if (!pedidoPertenceLoja)
+                return null;
+
+            throw new InvalidOperationException(mensagemQuandoSemVenda);
+        }
+
+        private static StatusVenda? ObterStatusVendaDaLojaParaExibicao(StatusVenda? statusVenda)
+        {
+            if (!statusVenda.HasValue || statusVenda == StatusVenda.Criada)
+                return null;
+
+            return ObterStatusVendaOperacional(statusVenda.Value);
+        }
+
+        private static StatusVenda ObterStatusVendaOperacional(StatusVenda? statusVenda)
+        {
+            if (!statusVenda.HasValue)
+                return StatusVenda.Criada;
+
+            return statusVenda.Value switch
+            {
+                StatusVenda.Paga => StatusVenda.Pendente,
+                _ => statusVenda.Value
+            };
+        }
+
+        private static StatusVenda[] ObterStatusVendaPersistidosParaFiltro(StatusVenda statusVenda)
+        {
+            return statusVenda switch
+            {
+                StatusVenda.Pendente => [StatusVenda.Paga, StatusVenda.Pendente],
+                StatusVenda.Paga => [StatusVenda.Paga, StatusVenda.Pendente],
+                _ => [statusVenda]
             };
         }
 
