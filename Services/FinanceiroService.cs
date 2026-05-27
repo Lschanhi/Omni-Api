@@ -166,7 +166,7 @@ namespace Omnimarket.Api.Services
 
                 foreach (var venda in vendas)
                 {
-                    venda.StatusVenda = StatusVenda.Paga;
+                    venda.StatusVenda = StatusVenda.Pendente;
                     venda.DataAtualizacao = agora;
                 }
             }

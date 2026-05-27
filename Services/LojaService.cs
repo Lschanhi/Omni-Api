@@ -60,6 +60,9 @@ namespace Omnimarket.Api.Services
             var vendasComReceita = new[]
             {
                 StatusVenda.Paga,
+                StatusVenda.Pendente,
+                StatusVenda.EmSeparacao,
+                StatusVenda.Pronto,
                 StatusVenda.Enviada,
                 StatusVenda.Concluida
             };

@@ -67,7 +67,7 @@ public class FinanceiroServiceTests
         Assert.Equal(StatusPedido.Pago, pedido.StatusPedidosId);
         Assert.Equal(StatusPagamento.Aprovado, plano.StatusPagamento);
         Assert.False(string.IsNullOrWhiteSpace(confirmacao.GatewayTransactionId));
-        Assert.Equal(StatusVenda.Paga, venda.StatusVenda);
+        Assert.Equal(StatusVenda.Pendente, venda.StatusVenda);
     }
 
     [Fact]

@@ -29,6 +29,8 @@ namespace Omnimarket.Api.Models.Dtos.Produtos.Lojas
         public string UfEntrega { get; set; } = string.Empty;
         public bool PedidoMultiloja { get; set; }
         public bool PodeCancelar { get; set; }
+        public bool PodeAceitar { get; set; }
+        public bool PodeMarcarComoPronto { get; set; }
         public bool PodeMarcarComoEnviado { get; set; }
         public List<LojaPedidoItemLeituraDto> Itens { get; set; } = new();
     }

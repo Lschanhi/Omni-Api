@@ -6,6 +6,9 @@ namespace Omnimarket.Api.Models.Enum
         Paga = 2,
         Enviada = 3,
         Concluida = 4,
-        Cancelada = 5
+        Cancelada = 5,
+        Pendente = 6,
+        EmSeparacao = 7,
+        Pronto = 8
     }
 }
