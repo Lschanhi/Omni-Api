@@ -294,6 +294,40 @@ public class PedidoServiceTests
     }
 
     [Fact]
+    public async Task ListarPedidosDaLoja_DeveBloquearEnvioQuandoVendaLegadaAindaEstiverComoPaga()
+    {
+        using var fixture = new ServiceTestFixture();
+        var scenario = await fixture.CriarPedidoPagoAsync();
+        var lojaId = await fixture.Context.TBL_LOJA
+            .Where(l => l.UsuarioId == scenario.VendedorId)
+            .Select(l => l.Id)
+            .SingleAsync();
+
+        var venda = await fixture.Context.TBL_VENDA
+            .SingleAsync(v => v.PedidoId == scenario.PedidoId);
+
+        venda.StatusVenda = StatusVenda.Paga;
+        await fixture.Context.SaveChangesAsync();
+        fixture.Context.ChangeTracker.Clear();
+
+        var pedidos = await fixture.PedidoService.ListarPedidosDaLojaAsync(
+            lojaId,
+            scenario.VendedorId,
+            busca: null,
+            statusPedido: null,
+            statusVenda: null,
+            page: 1,
+            pageSize: 20);
+
+        var pedido = Assert.Single(pedidos.Items);
+
+        Assert.Equal(StatusVenda.Pendente, pedido.StatusVenda);
+        Assert.True(pedido.PodeAceitar);
+        Assert.False(pedido.PodeMarcarComoPronto);
+        Assert.False(pedido.PodeMarcarComoEnviado);
+    }
+
+    [Fact]
     public async Task AtualizarStatusPedidoDaLoja_DeveAvancarFluxoOperacionalDaLojaPassoAPasso()
     {
         using var fixture = new ServiceTestFixture();
