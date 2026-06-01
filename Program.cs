@@ -12,6 +12,7 @@ using Omnimarket.Api.Services.Interfaces;
 using Omnimarket.Api.Utils;
 using QuestPDF.Infrastructure;
 
+
 var builder = WebApplication.CreateBuilder(args);
 
 QuestPDF.Settings.License = LicenseType.Community;
@@ -116,6 +117,7 @@ builder.Services.AddAuthentication(options =>
 // Servicos de negocio que serao injetados nos controllers.
 builder.Services.Configure<AzureBlobStorageOptions>(
     builder.Configuration.GetSection(AzureBlobStorageOptions.SectionName));
+    
 builder.Services.AddScoped<IArquivoStorageService, AzureBlobStorageService>();
 builder.Services.AddScoped<AuthService>();
 builder.Services.AddScoped<UsuarioPerfilService>();
