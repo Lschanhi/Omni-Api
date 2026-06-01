@@ -28,6 +28,8 @@ namespace Omnimarket.Api.Models.Dtos.Produtos.Lojas
         public string CidadeEntrega { get; set; } = string.Empty;
         public string UfEntrega { get; set; } = string.Empty;
         public bool PedidoMultiloja { get; set; }
+        public bool AguardandoConfirmacaoRecebimento { get; set; }
+        public bool PossuiSolicitacaoCancelamentoAtiva { get; set; }
         public bool PodeCancelar { get; set; }
         public bool PodeAceitar { get; set; }
         public bool PodeMarcarComoPronto { get; set; }

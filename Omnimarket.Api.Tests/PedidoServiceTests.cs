@@ -166,9 +166,21 @@ public class PedidoServiceTests
         using var fixture = new ServiceTestFixture();
         var scenario = await fixture.CriarPedidoPagoAsync();
 
+        var pedidoAntesDoEnvio = await fixture.PedidoService.BuscarPedido(scenario.PedidoId, scenario.CompradorId);
+        Assert.NotNull(pedidoAntesDoEnvio);
+        Assert.False(pedidoAntesDoEnvio!.PodeConfirmarRecebimento);
+
         var pedidoEnviado = await fixture.PedidoService.MarcarPedidoComoEnviadoAsync(scenario.PedidoId);
         Assert.NotNull(pedidoEnviado);
         Assert.Equal(StatusPedido.Enviado, pedidoEnviado!.StatusPedidosId);
+
+        var pedidoAguardandoRecebimento = await fixture.PedidoService.BuscarPedido(
+            scenario.PedidoId,
+            scenario.CompradorId);
+
+        Assert.NotNull(pedidoAguardandoRecebimento);
+        Assert.True(pedidoAguardandoRecebimento!.PodeConfirmarRecebimento);
+        Assert.False(pedidoAguardandoRecebimento.PossuiSolicitacaoCancelamentoAtiva);
 
         fixture.Context.ChangeTracker.Clear();
 
@@ -197,6 +209,35 @@ public class PedidoServiceTests
     }
 
     [Fact]
+    public async Task ConfirmarEntregaPedidoAsync_DeveBloquearQuandoHouverSolicitacaoCancelamentoAtiva()
+    {
+        using var fixture = new ServiceTestFixture();
+        var scenario = await fixture.CriarPedidoPagoAsync();
+
+        await fixture.PedidoService.MarcarPedidoComoEnviadoAsync(scenario.PedidoId);
+
+        await fixture.SolicitacaoCancelamentoService.CriarAsync(
+            scenario.PedidoId,
+            scenario.CompradorId,
+            new SolicitacaoCancelamentoCriacaoDto
+            {
+                Motivo = MotivoSolicitacaoCancelamento.EntregaNaoRecebida
+            });
+
+        var pedido = await fixture.PedidoService.BuscarPedido(scenario.PedidoId, scenario.CompradorId);
+        Assert.NotNull(pedido);
+        Assert.False(pedido!.PodeConfirmarRecebimento);
+        Assert.True(pedido.PossuiSolicitacaoCancelamentoAtiva);
+
+        var excecao = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.PedidoService.ConfirmarEntregaPedidoAsync(scenario.PedidoId, scenario.CompradorId));
+
+        Assert.Equal(
+            "Existe uma SolicitacaoCancelamento ativa para este pedido. Resolva a tratativa antes de confirmar o recebimento.",
+            excecao.Message);
+    }
+
+    [Fact]
     public async Task CancelarPedido_DeveFalharQuandoPedidoJaFoiEnviado()
     {
         using var fixture = new ServiceTestFixture();
@@ -208,7 +249,7 @@ public class PedidoServiceTests
             fixture.PedidoService.CancelarPedido(scenario.PedidoId, scenario.CompradorId));
 
         Assert.Equal(
-            "Pedido enviado nao pode ser cancelado pelo cliente. Nesse caso o ideal e abrir um atendimento para devolucao.",
+            "Pedido enviado nao pode ser cancelado diretamente pelo cliente. Abra uma SolicitacaoCancelamento para tratar devolucao ou cancelamento.",
             excecao.Message);
     }
 
@@ -378,6 +419,44 @@ public class PedidoServiceTests
 
         Assert.Equal(StatusVenda.Enviada, venda.StatusVenda);
         Assert.Equal(StatusPedido.Enviado, pedido.StatusPedidosId);
+    }
+
+    [Fact]
+    public async Task BuscarPedidoDaLoja_DeveIndicarQuandoAguardaConfirmacaoDeRecebimento()
+    {
+        using var fixture = new ServiceTestFixture();
+        var scenario = await fixture.CriarPedidoPagoAsync();
+        var lojaId = await fixture.Context.TBL_LOJA
+            .Where(l => l.UsuarioId == scenario.VendedorId)
+            .Select(l => l.Id)
+            .SingleAsync();
+
+        await fixture.PedidoService.AtualizarStatusPedidoDaLojaAsync(
+            lojaId,
+            scenario.VendedorId,
+            scenario.PedidoId,
+            StatusVenda.EmSeparacao);
+
+        await fixture.PedidoService.AtualizarStatusPedidoDaLojaAsync(
+            lojaId,
+            scenario.VendedorId,
+            scenario.PedidoId,
+            StatusVenda.Pronto);
+
+        await fixture.PedidoService.AtualizarStatusPedidoDaLojaAsync(
+            lojaId,
+            scenario.VendedorId,
+            scenario.PedidoId,
+            StatusVenda.Enviada);
+
+        var pedidoLoja = await fixture.PedidoService.BuscarPedidoDaLojaAsync(
+            lojaId,
+            scenario.VendedorId,
+            scenario.PedidoId);
+
+        Assert.NotNull(pedidoLoja);
+        Assert.True(pedidoLoja!.AguardandoConfirmacaoRecebimento);
+        Assert.False(pedidoLoja.PossuiSolicitacaoCancelamentoAtiva);
     }
 
     [Fact]

@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Omnimarket.Api.Models.Dtos.Pedidos;
 using Omnimarket.Api.Models.Dtos.Produtos.Lojas;
 using Omnimarket.Api.Models.Enum;
 using Omnimarket.Api.Services;
@@ -15,17 +16,20 @@ namespace Omnimarket.Api.Controllers
         private readonly LojaService _lojaService;
         private readonly PedidoService _pedidoService;
         private readonly ReciboPedidoService _reciboPedidoService;
+        private readonly SolicitacaoCancelamentoService _solicitacaoCancelamentoService;
 
         public LojasController(
             AvaliacaoProdutoService avaliacaoProdutoService,
             LojaService lojaService,
             PedidoService pedidoService,
-            ReciboPedidoService reciboPedidoService)
+            ReciboPedidoService reciboPedidoService,
+            SolicitacaoCancelamentoService solicitacaoCancelamentoService)
         {
             _avaliacaoProdutoService = avaliacaoProdutoService;
             _lojaService = lojaService;
             _pedidoService = pedidoService;
             _reciboPedidoService = reciboPedidoService;
+            _solicitacaoCancelamentoService = solicitacaoCancelamentoService;
         }
 
         // Retorna a loja vinculada ao usuario autenticado.
@@ -163,6 +167,67 @@ namespace Omnimarket.Api.Controllers
                     pdf,
                     "application/pdf",
                     $"recibo-pedido-{pedidoId}-loja.pdf");
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { mensagem = ex.Message });
+            }
+        }
+
+        [Authorize]
+        [HttpGet("minha/solicitacoes-cancelamento")]
+        public async Task<IActionResult> ListarSolicitacoesCancelamentoDaMinhaLoja(
+            [FromQuery] StatusSolicitacaoCancelamento? status,
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 20)
+        {
+            var usuarioId = User.GetUserId();
+            var loja = await _lojaService.ObterMinhaLojaAsync(usuarioId);
+
+            if (loja == null)
+                return NotFound(new { mensagem = "Loja ainda nao cadastrada para este usuario." });
+
+            var solicitacoes = await _solicitacaoCancelamentoService.ListarDaLojaAsync(
+                loja.Id,
+                usuarioId,
+                status,
+                page,
+                pageSize);
+
+            return Ok(solicitacoes);
+        }
+
+        [Authorize]
+        [HttpPut("minha/solicitacoes-cancelamento/{solicitacaoId:int}/status")]
+        public async Task<IActionResult> AtualizarStatusSolicitacaoCancelamentoDaMinhaLoja(
+            int solicitacaoId,
+            [FromBody] SolicitacaoCancelamentoAtualizacaoDto dto)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            var usuarioId = User.GetUserId();
+            var loja = await _lojaService.ObterMinhaLojaAsync(usuarioId);
+
+            if (loja == null)
+                return NotFound(new { mensagem = "Loja ainda nao cadastrada para este usuario." });
+
+            try
+            {
+                var solicitacao = await _solicitacaoCancelamentoService.AtualizarStatusDaLojaAsync(
+                    loja.Id,
+                    usuarioId,
+                    solicitacaoId,
+                    dto);
+
+                if (solicitacao == null)
+                    return NotFound(new { mensagem = "Solicitacao de cancelamento nao encontrada para a sua loja." });
+
+                return Ok(new
+                {
+                    mensagem = "Solicitacao de cancelamento atualizada com sucesso!",
+                    solicitacao
+                });
             }
             catch (InvalidOperationException ex)
             {

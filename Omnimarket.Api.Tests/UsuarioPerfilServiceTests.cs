@@ -38,14 +38,15 @@ public class UsuarioPerfilServiceTests
                 NomeArquivo = "avatar.png"
             });
 
-        Assert.Equal(dataUrl, fotoPerfil.AvatarUrl);
+        Assert.StartsWith("https://storage.test/foto-perfil-test/usuarios/", fotoPerfil.AvatarUrl);
         Assert.Equal("avatar.png", fotoPerfil.NomeArquivo);
 
         var perfil = await fixture.UsuarioPerfilService.ObterPerfilAsync(usuario.Id);
 
         Assert.NotNull(perfil);
-        Assert.Equal(dataUrl, perfil!.AvatarUrl);
+        Assert.Equal(fotoPerfil.AvatarUrl, perfil!.AvatarUrl);
         Assert.Single(fixture.Context.TBL_USUARIO_FOTO_PERFIL);
+        Assert.Equal(Array.Empty<byte>(), fixture.Context.TBL_USUARIO_FOTO_PERFIL.Single().Conteudo);
     }
 
     [Fact]
@@ -66,5 +67,6 @@ public class UsuarioPerfilServiceTests
 
         Assert.True(removida);
         Assert.Empty(fixture.Context.TBL_USUARIO_FOTO_PERFIL);
+        Assert.Single(fixture.ArquivoStorageService.ArquivosRemovidos);
     }
 }

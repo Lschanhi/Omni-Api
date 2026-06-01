@@ -28,6 +28,7 @@ namespace Omnimarket.Api.Data
         public DbSet<FormaPagamento> TBL_FORMA_PAGAMENTO { get; set; }
         public DbSet<PlanoPagamento> TBL_PLANO_PAGAMENTO { get; set; }
         public DbSet<Venda> TBL_VENDA { get; set; }
+        public DbSet<SolicitacaoCancelamento> TBL_SOLICITACAO_CANCELAMENTO { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -48,6 +49,7 @@ namespace Omnimarket.Api.Data
             modelBuilder.Entity<FormaPagamento>().ToTable("TBL_FORMA_PAGAMENTO");
             modelBuilder.Entity<PlanoPagamento>().ToTable("TBL_PLANO_PAGAMENTO");
             modelBuilder.Entity<Venda>().ToTable("TBL_VENDA");
+            modelBuilder.Entity<SolicitacaoCancelamento>().ToTable("TBL_SOLICITACAO_CANCELAMENTO");
 
             modelBuilder.Entity<Usuario>()
                 .HasOne(u => u.FotoPerfil)
@@ -120,6 +122,10 @@ namespace Omnimarket.Api.Data
                 .Property(f => f.MimeType)
                 .HasMaxLength(120);
 
+            modelBuilder.Entity<UsuarioFotoPerfil>()
+                .Property(f => f.Url)
+                .HasMaxLength(500);
+
             modelBuilder.Entity<ProdutoMidia>()
                 .Property(m => m.Url)
                 .HasMaxLength(500);
@@ -178,6 +184,22 @@ namespace Omnimarket.Api.Data
 
             modelBuilder.Entity<Venda>()
                 .Property(v => v.StatusVenda)
+                .HasConversion<string>();
+
+            modelBuilder.Entity<SolicitacaoCancelamento>()
+                .Property(s => s.Motivo)
+                .HasConversion<string>();
+
+            modelBuilder.Entity<SolicitacaoCancelamento>()
+                .Property(s => s.Status)
+                .HasConversion<string>();
+
+            modelBuilder.Entity<SolicitacaoCancelamento>()
+                .Property(s => s.StatusPedidoOrigem)
+                .HasConversion<string>();
+
+            modelBuilder.Entity<SolicitacaoCancelamento>()
+                .Property(s => s.StatusVendaOrigem)
                 .HasConversion<string>();
 
             modelBuilder.Entity<Produto>()
@@ -267,6 +289,36 @@ namespace Omnimarket.Api.Data
                 .WithMany()
                 .HasForeignKey(v => v.VendedorId)
                 .OnDelete(DeleteBehavior.NoAction);
+
+            modelBuilder.Entity<SolicitacaoCancelamento>()
+                .HasOne(s => s.Pedido)
+                .WithMany()
+                .HasForeignKey(s => s.PedidoId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            modelBuilder.Entity<SolicitacaoCancelamento>()
+                .HasOne(s => s.Venda)
+                .WithMany()
+                .HasForeignKey(s => s.VendaId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            modelBuilder.Entity<SolicitacaoCancelamento>()
+                .HasOne(s => s.Solicitante)
+                .WithMany()
+                .HasForeignKey(s => s.SolicitanteId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            modelBuilder.Entity<SolicitacaoCancelamento>()
+                .HasOne(s => s.ResponsavelAnalise)
+                .WithMany()
+                .HasForeignKey(s => s.ResponsavelAnaliseId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            modelBuilder.Entity<SolicitacaoCancelamento>()
+                .HasIndex(s => s.VendaId);
+
+            modelBuilder.Entity<SolicitacaoCancelamento>()
+                .HasIndex(s => new { s.Status, s.DataCriacao });
 
             var dataSeedPadrao = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 

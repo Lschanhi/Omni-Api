@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using Omnimarket.Api.Models.Configuracoes;
 using Omnimarket.Api.Data;
 using Omnimarket.Api.Services;
 using Omnimarket.Api.Services.Interfaces;
@@ -21,7 +22,7 @@ builder.Logging.AddDebug();
 // Permite sobreposicao local de segredos sem versionar no repositorio.
 builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
 
-var connectionString = builder.Configuration.GetConnectionString("ConexaoAzure");
+var connectionString = builder.Configuration.GetConnectionString("ConexaoAzureBk");
 if (string.IsNullOrWhiteSpace(connectionString) ||
     connectionString.Contains("SEU_SERVIDOR", StringComparison.OrdinalIgnoreCase))
 {
@@ -49,7 +50,14 @@ builder.Services.AddDataProtection()
 // Registra o contexto do Entity Framework apontando para o banco SQL Server.
 builder.Services.AddDbContext<DataContext>(options =>
 {
-    options.UseSqlServer(connectionString);
+    options.UseSqlServer(connectionString, sqlOptions =>
+    {
+        sqlOptions.EnableRetryOnFailure(
+            maxRetryCount: 5,
+            maxRetryDelay: TimeSpan.FromSeconds(10),
+            errorNumbersToAdd: null
+        );
+    });
 });
 
 // Configura a autenticacao da API para usar JWT em todos os endpoints protegidos.
@@ -105,10 +113,14 @@ builder.Services.AddAuthentication(options =>
 });
 
 // Servicos de negocio que serao injetados nos controllers.
+builder.Services.Configure<AzureBlobStorageOptions>(
+    builder.Configuration.GetSection(AzureBlobStorageOptions.SectionName));
+builder.Services.AddScoped<IArquivoStorageService, AzureBlobStorageService>();
 builder.Services.AddScoped<AuthService>();
 builder.Services.AddScoped<UsuarioPerfilService>();
 builder.Services.AddScoped<TokenService>();
 builder.Services.AddScoped<PedidoService>();
+builder.Services.AddScoped<SolicitacaoCancelamentoService>();
 builder.Services.AddScoped<IProdutoService, ProdutoService>();
 builder.Services.AddScoped<AvaliacaoProdutoService>();
 builder.Services.AddScoped<LojaService>();

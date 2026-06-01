@@ -38,15 +38,15 @@ public class ProdutoMidiaServiceTests
             .ToListAsync();
 
         Assert.Equal(2, midiasSalvas.Count);
-        Assert.All(midiasSalvas, midia => Assert.NotNull(midia.Conteudo));
+        Assert.All(midiasSalvas, midia => Assert.Null(midia.Conteudo));
         Assert.Equal(TipoMidiaProduto.Foto, midiasSalvas[0].Tipo);
         Assert.Equal(TipoMidiaProduto.Video, midiasSalvas[1].Tipo);
 
         Assert.Single(produto.Imagens);
-        Assert.StartsWith("data:image/png;base64,", produto.Imagens[0]);
+        Assert.StartsWith("https://storage.test/foto-produto-test/produtos/", produto.Imagens[0]);
         Assert.Equal(2, produto.Midias.Count);
-        Assert.Contains(produto.Midias, midia => midia.Tipo == TipoMidiaProduto.Video);
-        Assert.All(produto.Midias, midia => Assert.StartsWith("data:", midia.Url));
+        Assert.Contains(produto.Midias, midia => midia.Tipo == TipoMidiaProduto.Video && midia.Url.StartsWith("https://storage.test/videos-produto-test/produtos/"));
+        Assert.Contains(produto.Midias, midia => midia.Tipo == TipoMidiaProduto.Foto && midia.Url.StartsWith("https://storage.test/foto-produto-test/produtos/"));
     }
 
     [Fact]
@@ -73,11 +73,11 @@ public class ProdutoMidiaServiceTests
 
         Assert.Equal(2, resultado.Count);
         Assert.Equal(2, midiasSalvas.Count);
-        Assert.All(midiasSalvas, midia => Assert.NotNull(midia.Conteudo));
+        Assert.All(midiasSalvas, midia => Assert.Null(midia.Conteudo));
         Assert.Equal("foto.png", midiasSalvas[0].NomeArquivo);
         Assert.Equal("video.mp4", midiasSalvas[1].NomeArquivo);
-        Assert.StartsWith("data:image/png;base64,", resultado[0].Url);
-        Assert.StartsWith("data:video/mp4;base64,", resultado[1].Url);
+        Assert.StartsWith("https://storage.test/foto-produto-test/produtos/", resultado[0].Url);
+        Assert.StartsWith("https://storage.test/videos-produto-test/produtos/", resultado[1].Url);
     }
 
     [Fact]

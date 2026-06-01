@@ -1,8 +1,11 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Omnimarket.Api.Data;
+using Omnimarket.Api.Models.Configuracoes;
 using Omnimarket.Api.Models;
 using Omnimarket.Api.Models.Dtos.Usuarios;
 using Omnimarket.Api.Models.Entidades;
+using Omnimarket.Api.Services.Interfaces;
 using Omnimarket.Api.Utils;
 
 namespace Omnimarket.Api.Services
@@ -11,10 +14,17 @@ namespace Omnimarket.Api.Services
     {
         private const int TamanhoMaximoFotoPerfilEmBytes = 2 * 1024 * 1024;
         private readonly DataContext _context;
+        private readonly IArquivoStorageService _arquivoStorageService;
+        private readonly AzureBlobStorageOptions _blobStorageOptions;
 
-        public UsuarioPerfilService(DataContext context)
+        public UsuarioPerfilService(
+            DataContext context,
+            IArquivoStorageService arquivoStorageService,
+            IOptions<AzureBlobStorageOptions> blobStorageOptions)
         {
             _context = context;
+            _arquivoStorageService = arquivoStorageService;
+            _blobStorageOptions = blobStorageOptions.Value;
         }
 
         public async Task<UsuarioPerfilLeituraDto?> ObterPerfilAsync(int usuarioId)
@@ -36,7 +46,7 @@ namespace Omnimarket.Api.Services
                 Sobrenome = usuario.Sobrenome,
                 Email = usuario.Email,
                 Role = usuario.Role,
-                AvatarUrl = usuario.FotoPerfil == null ? null : MontarDataUrl(usuario.FotoPerfil),
+                AvatarUrl = usuario.FotoPerfil == null ? null : ObterUrlLeitura(usuario.FotoPerfil),
                 Telefones = usuario.Telefones
                     .Select(t => new UsuarioPerfilTelefoneLeituraDto
                     {
@@ -92,6 +102,14 @@ namespace Omnimarket.Api.Services
             var nomeArquivo = SanitizarNomeArquivo(dto.NomeArquivo);
             var fotoPerfil = await _context.TBL_USUARIO_FOTO_PERFIL
                 .FirstOrDefaultAsync(f => f.UsuarioId == usuarioId);
+            var urlAnterior = fotoPerfil?.Url;
+            await using var memoryStream = new MemoryStream(conteudo);
+            var urlBlob = await _arquivoStorageService.SalvarAsync(
+                _blobStorageOptions.FotoPerfilContainerName,
+                $"usuarios/{usuarioId}/perfil",
+                nomeArquivo,
+                mimeType,
+                memoryStream);
 
             if (fotoPerfil == null)
             {
@@ -100,7 +118,8 @@ namespace Omnimarket.Api.Services
                     UsuarioId = usuarioId,
                     MimeType = mimeType,
                     NomeArquivo = nomeArquivo,
-                    Conteudo = conteudo,
+                    Url = urlBlob,
+                    Conteudo = Array.Empty<byte>(),
                     DtCriacao = DateTimeOffset.UtcNow
                 };
 
@@ -110,11 +129,19 @@ namespace Omnimarket.Api.Services
             {
                 fotoPerfil.MimeType = mimeType;
                 fotoPerfil.NomeArquivo = nomeArquivo;
-                fotoPerfil.Conteudo = conteudo;
+                fotoPerfil.Url = urlBlob;
+                fotoPerfil.Conteudo = Array.Empty<byte>();
                 fotoPerfil.DtAtualizacao = DateTimeOffset.UtcNow;
             }
 
             await _context.SaveChangesAsync();
+
+            if (!string.IsNullOrWhiteSpace(urlAnterior) &&
+                !string.Equals(urlAnterior, urlBlob, StringComparison.OrdinalIgnoreCase))
+            {
+                await _arquivoStorageService.RemoverAsync(urlAnterior);
+            }
+
             return MapearFotoPerfil(fotoPerfil);
         }
 
@@ -126,6 +153,7 @@ namespace Omnimarket.Api.Services
             if (fotoPerfil == null)
                 return false;
 
+            await _arquivoStorageService.RemoverAsync(fotoPerfil.Url);
             _context.TBL_USUARIO_FOTO_PERFIL.Remove(fotoPerfil);
             await _context.SaveChangesAsync();
             return true;
@@ -168,15 +196,18 @@ namespace Omnimarket.Api.Services
         {
             return new UsuarioFotoPerfilLeituraDto
             {
-                AvatarUrl = MontarDataUrl(fotoPerfil),
+                AvatarUrl = ObterUrlLeitura(fotoPerfil),
                 MimeType = fotoPerfil.MimeType,
                 NomeArquivo = fotoPerfil.NomeArquivo,
                 DtAtualizacao = fotoPerfil.DtAtualizacao ?? fotoPerfil.DtCriacao
             };
         }
 
-        private static string MontarDataUrl(UsuarioFotoPerfil fotoPerfil)
+        private static string ObterUrlLeitura(UsuarioFotoPerfil fotoPerfil)
         {
+            if (!string.IsNullOrWhiteSpace(fotoPerfil.Url))
+                return fotoPerfil.Url;
+
             return $"data:{fotoPerfil.MimeType};base64,{Convert.ToBase64String(fotoPerfil.Conteudo)}";
         }
 

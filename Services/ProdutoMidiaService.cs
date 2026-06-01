@@ -1,8 +1,12 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Omnimarket.Api.Data;
+using Omnimarket.Api.Models.Configuracoes;
 using Omnimarket.Api.Models.Dtos.Produtos.Midias;
 using Omnimarket.Api.Models.Entidades;
+using Omnimarket.Api.Models.Enum;
+using Omnimarket.Api.Services.Interfaces;
 using Omnimarket.Api.Utils;
 
 namespace Omnimarket.Api.Services
@@ -10,10 +14,17 @@ namespace Omnimarket.Api.Services
     public class ProdutoMidiaService
     {
         private readonly DataContext _context;
+        private readonly IArquivoStorageService _arquivoStorageService;
+        private readonly AzureBlobStorageOptions _blobStorageOptions;
 
-        public ProdutoMidiaService(DataContext context)
+        public ProdutoMidiaService(
+            DataContext context,
+            IArquivoStorageService arquivoStorageService,
+            IOptions<AzureBlobStorageOptions> blobStorageOptions)
         {
             _context = context;
+            _arquivoStorageService = arquivoStorageService;
+            _blobStorageOptions = blobStorageOptions.Value;
         }
 
         public async Task<List<ProdutoMidiaLeituraDto>> ListarAsync(int produtoId)
@@ -72,15 +83,22 @@ namespace Omnimarket.Api.Services
 
                 await using var memoryStream = new MemoryStream();
                 await arquivo.CopyToAsync(memoryStream);
+                var nomeArquivo = ProdutoMidiaHelper.SanitizarNomeArquivo(arquivo.FileName, tipo);
+                var urlBlob = await _arquivoStorageService.SalvarAsync(
+                    ObterContainerProduto(tipo),
+                    $"produtos/{produtoId}/midias",
+                    nomeArquivo,
+                    arquivo.ContentType?.Trim() ?? "application/octet-stream",
+                    memoryStream);
 
                 novasMidias.Add(new ProdutoMidia
                 {
                     ProdutoId = produtoId,
-                    Tipo = tipo,
-                    Url = string.Empty,
+                Tipo = tipo,
+                Url = urlBlob,
                     ContentType = arquivo.ContentType?.Trim(),
-                    NomeArquivo = ProdutoMidiaHelper.SanitizarNomeArquivo(arquivo.FileName, tipo),
-                    Conteudo = memoryStream.ToArray(),
+                    NomeArquivo = nomeArquivo,
+                    Conteudo = null,
                     Ordem = ordemAtual++
                 });
             }
@@ -95,6 +113,13 @@ namespace Omnimarket.Api.Services
                 .OrderBy(m => m.Ordem)
                 .Select(MapearMidia)
                 .ToList();
+        }
+
+        private string ObterContainerProduto(TipoMidiaProduto tipo)
+        {
+            return tipo == TipoMidiaProduto.Video
+                ? _blobStorageOptions.VideoProdutoContainerName
+                : _blobStorageOptions.FotoProdutoContainerName;
         }
 
         public async Task RemoverAsync(int produtoId, int midiaId, int usuarioId)
@@ -115,6 +140,7 @@ namespace Omnimarket.Api.Services
             if (midia == null)
                 throw new KeyNotFoundException("Midia nao encontrada.");
 
+            await _arquivoStorageService.RemoverAsync(midia.Url);
             _context.ProdutoMidia.Remove(midia);
             await _context.SaveChangesAsync();
         }
