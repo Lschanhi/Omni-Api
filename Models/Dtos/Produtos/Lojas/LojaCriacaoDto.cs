@@ -23,6 +23,11 @@ namespace Omnimarket.Api.Models.Dtos.Produtos.Lojas
         [StringLength(120)]
         public string? EmailContato { get; set; }
 
+        public string? FotoPerfilDataUrl { get; set; }
+
+        [StringLength(260)]
+        public string? FotoPerfilNomeArquivo { get; set; }
+
         public bool UsarEnderecoUsuario { get; set; }
 
         public int? EnderecoUsuarioId { get; set; }

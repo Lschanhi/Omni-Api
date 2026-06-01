@@ -8,5 +8,6 @@ namespace Omnimarket.Api.Models.Configuracoes
         public string FotoPerfilContainerName { get; set; } = string.Empty;
         public string FotoProdutoContainerName { get; set; } = string.Empty;
         public string VideoProdutoContainerName { get; set; } = string.Empty;
+        public string FotoPerfilLojaContainerName { get; set; } = string.Empty;
     }
 }

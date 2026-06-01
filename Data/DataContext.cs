@@ -178,6 +178,10 @@ namespace Omnimarket.Api.Data
                 .Property(l => l.TipoDocumentoFiscal)
                 .HasConversion<string>();
 
+            modelBuilder.Entity<Loja>()
+                .Property(l => l.FotoPerfilUrl)
+                .HasMaxLength(500);
+
             modelBuilder.Entity<PlanoPagamento>()
                 .Property(p => p.StatusPagamento)
                 .HasConversion<string>();

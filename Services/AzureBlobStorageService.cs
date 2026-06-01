@@ -132,7 +132,8 @@ namespace Omnimarket.Api.Services
             {
                 _options.FotoPerfilContainerName,
                 _options.FotoProdutoContainerName,
-                _options.VideoProdutoContainerName
+                _options.VideoProdutoContainerName,
+                _options.FotoPerfilLojaContainerName
             };
 
             return containersPermitidos.Any(container =>

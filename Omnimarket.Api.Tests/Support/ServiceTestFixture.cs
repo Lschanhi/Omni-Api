@@ -53,7 +53,8 @@ internal sealed class ServiceTestFixture : IDisposable
         {
             FotoPerfilContainerName = "foto-perfil-test",
             FotoProdutoContainerName = "foto-produto-test",
-            VideoProdutoContainerName = "videos-produto-test"
+            VideoProdutoContainerName = "videos-produto-test",
+            FotoPerfilLojaContainerName = "foto-perfil-loja-test"
         });
 
         AvaliacaoProdutoService = new AvaliacaoProdutoService(Context);
@@ -61,7 +62,7 @@ internal sealed class ServiceTestFixture : IDisposable
         CarrinhoService = new CarrinhoService(Context);
         EnderecoService = new EnderecoService(Context);
         FinanceiroService = new FinanceiroService(Context, gatewayPagamentoService);
-        LojaService = new LojaService(Context);
+        LojaService = new LojaService(Context, ArquivoStorageService, blobStorageOptions);
         PedidoService = new PedidoService(Context, FinanceiroService);
         ProdutoMidiaService = new ProdutoMidiaService(Context, ArquivoStorageService, blobStorageOptions);
         ProdutoService = new ProdutoService(Context, ArquivoStorageService, blobStorageOptions);
