@@ -1,20 +1,31 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Omnimarket.Api.Data;
+using Omnimarket.Api.Models.Configuracoes;
 using Omnimarket.Api.Models;
 using Omnimarket.Api.Models.Dtos.Produtos.Lojas;
 using Omnimarket.Api.Models.Entidades;
 using Omnimarket.Api.Models.Enum;
+using Omnimarket.Api.Services.Interfaces;
 using Omnimarket.Api.Utils;
 
 namespace Omnimarket.Api.Services
 {
     public class LojaService
     {
+        private const int TamanhoMaximoFotoPerfilEmBytes = 2 * 1024 * 1024;
         private readonly DataContext _context;
+        private readonly IArquivoStorageService _arquivoStorageService;
+        private readonly AzureBlobStorageOptions _blobStorageOptions;
 
-        public LojaService(DataContext context)
+        public LojaService(
+            DataContext context,
+            IArquivoStorageService arquivoStorageService,
+            IOptions<AzureBlobStorageOptions> blobStorageOptions)
         {
             _context = context;
+            _arquivoStorageService = arquivoStorageService;
+            _blobStorageOptions = blobStorageOptions.Value;
         }
 
         // Retorna a loja vinculada ao usuario autenticado.
@@ -207,6 +218,14 @@ namespace Omnimarket.Api.Services
                 DtCriacao = DateTimeOffset.UtcNow
             };
 
+            if (!string.IsNullOrWhiteSpace(dto.FotoPerfilDataUrl))
+            {
+                loja.FotoPerfilUrl = await SalvarFotoPerfilLojaAsync(
+                    usuarioId,
+                    dto.FotoPerfilDataUrl,
+                    dto.FotoPerfilNomeArquivo);
+            }
+
             await _context.TBL_LOJA.AddAsync(loja);
             await _context.SaveChangesAsync();
 
@@ -241,6 +260,7 @@ namespace Omnimarket.Api.Services
             loja.EmailContato = LimparOpcional(dto.EmailContato)?.ToLowerInvariant();
             loja.Ativa = dto.Ativa;
             loja.DtAtualizacao = DateTimeOffset.UtcNow;
+            var urlFotoPerfilAnterior = loja.FotoPerfilUrl;
 
             var novoEnderecoLoja = await CriarEnderecoLojaAsync(
                 usuarioId,
@@ -262,9 +282,46 @@ namespace Omnimarket.Api.Services
             if (novoTelefoneLoja != null)
                 loja.Telefone = novoTelefoneLoja;
 
+            if (!string.IsNullOrWhiteSpace(dto.FotoPerfilDataUrl))
+            {
+                loja.FotoPerfilUrl = await SalvarFotoPerfilLojaAsync(
+                    usuarioId,
+                    dto.FotoPerfilDataUrl,
+                    dto.FotoPerfilNomeArquivo);
+            }
+
             await _context.SaveChangesAsync();
 
+            if (!string.IsNullOrWhiteSpace(urlFotoPerfilAnterior) &&
+                !string.Equals(urlFotoPerfilAnterior, loja.FotoPerfilUrl, StringComparison.OrdinalIgnoreCase))
+            {
+                await _arquivoStorageService.RemoverAsync(urlFotoPerfilAnterior);
+            }
+
             return MapearGestao(loja);
+        }
+
+        private async Task<string> SalvarFotoPerfilLojaAsync(
+            int usuarioId,
+            string dataUrl,
+            string? nomeArquivo)
+        {
+            var (mimeType, conteudo) = ConverterDataUrl(dataUrl);
+            if (!mimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("Envie uma imagem valida para a foto de perfil da loja.");
+
+            if (conteudo.Length > TamanhoMaximoFotoPerfilEmBytes)
+                throw new InvalidOperationException("A foto de perfil da loja deve ter no maximo 2 MB.");
+
+            var nomeArquivoFinal = SanitizarNomeArquivo(nomeArquivo);
+            await using var memoryStream = new MemoryStream(conteudo);
+
+            return await _arquivoStorageService.SalvarAsync(
+                _blobStorageOptions.FotoPerfilLojaContainerName,
+                $"lojas/usuarios/{usuarioId}/perfil",
+                nomeArquivoFinal,
+                mimeType,
+                memoryStream);
         }
 
         private async Task<Endereco?> CriarEnderecoLojaAsync(
@@ -368,6 +425,39 @@ namespace Omnimarket.Api.Services
                 return null;
 
             return valor.Trim();
+        }
+
+        private static (string MimeType, byte[] Conteudo) ConverterDataUrl(string dataUrl)
+        {
+            if (string.IsNullOrWhiteSpace(dataUrl))
+                throw new InvalidOperationException("Envie uma imagem valida para a foto de perfil da loja.");
+
+            var marker = ";base64,";
+            var base64SeparatorIndex = dataUrl.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+
+            if (!dataUrl.StartsWith("data:", StringComparison.OrdinalIgnoreCase) ||
+                base64SeparatorIndex <= "data:".Length)
+            {
+                throw new InvalidOperationException("Formato de imagem invalido para a foto de perfil da loja.");
+            }
+
+            var mimeType = dataUrl["data:".Length..base64SeparatorIndex].Trim();
+            var base64 = dataUrl[(base64SeparatorIndex + marker.Length)..].Trim();
+
+            try
+            {
+                return (mimeType, Convert.FromBase64String(base64));
+            }
+            catch (FormatException)
+            {
+                throw new InvalidOperationException("Formato de imagem invalido para a foto de perfil da loja.");
+            }
+        }
+
+        private static string SanitizarNomeArquivo(string? nomeArquivo)
+        {
+            var nomeFinal = Path.GetFileName(nomeArquivo?.Trim());
+            return string.IsNullOrWhiteSpace(nomeFinal) ? "foto-perfil-loja" : nomeFinal;
         }
 
         private static Endereco ClonarEndereco(Endereco origem, int usuarioId)
@@ -474,6 +564,7 @@ namespace Omnimarket.Api.Services
                     loja.DocumentoFiscal),
                 Descricao = loja.Descricao,
                 EmailContato = loja.EmailContato,
+                FotoPerfilUrl = loja.FotoPerfilUrl,
                 EnderecoId = loja.EnderecoId,
                 Cep = loja.Endereco?.Cep,
                 Cidade = loja.Endereco?.Cidade,
@@ -506,6 +597,7 @@ namespace Omnimarket.Api.Services
                     loja.DocumentoFiscal),
                 Descricao = loja.Descricao,
                 EmailContato = loja.EmailContato,
+                FotoPerfilUrl = loja.FotoPerfilUrl,
                 EnderecoId = loja.EnderecoId,
                 Cep = loja.Endereco?.Cep,
                 Cidade = loja.Endereco?.Cidade,

@@ -12,6 +12,7 @@ namespace Omnimarket.Api.Models.Dtos.Produtos.Lojas
         public string DocumentoFiscalFormatado { get; set; } = string.Empty;
         public string? Descricao { get; set; }
         public string? EmailContato { get; set; }
+        public string? FotoPerfilUrl { get; set; }
         public int? EnderecoId { get; set; }
         public string? Cep { get; set; }
         public string? Cidade { get; set; }

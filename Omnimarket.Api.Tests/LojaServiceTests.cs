@@ -106,6 +106,50 @@ public class LojaServiceTests
     }
 
     [Fact]
+    public async Task CriarMinhaLojaAsync_ComFotoPerfil_DeveSalvarArquivoNoContainerDaLoja()
+    {
+        using var fixture = new ServiceTestFixture();
+        var usuario = await fixture.CriarUsuarioAsync("loja-com-foto");
+        var dataUrl = $"data:image/png;base64,{Convert.ToBase64String(new byte[] { 1, 2, 3, 4 })}";
+
+        var loja = await fixture.LojaService.CriarMinhaLojaAsync(
+            usuario.Id,
+            new LojaCriacaoDto
+            {
+                NomeFantasia = "Loja com foto",
+                TipoDocumentoFiscal = TipoDocumentoFiscalLoja.CPF,
+                DocumentoFiscal = usuario.Cpf,
+                FotoPerfilDataUrl = dataUrl,
+                FotoPerfilNomeArquivo = "logo-loja.png",
+                NovoEnderecoLoja = new EnderecoCriacaoDto
+                {
+                    Cep = "01001000",
+                    TipoLogradouro = TiposLogradouroBR.Rua,
+                    NomeEndereco = "Rua da Loja",
+                    Numero = "10",
+                    Cidade = "Sao Paulo",
+                    Uf = "SP",
+                    IsPrincipal = true
+                },
+                NovoTelefoneLoja = new TelefoneCriacaoDto
+                {
+                    Ddd = "11",
+                    Numero = "999998888",
+                    IsPrincipal = true
+                }
+            });
+
+        fixture.Context.ChangeTracker.Clear();
+
+        var lojaSalva = await fixture.Context.TBL_LOJA.SingleAsync(l => l.Id == loja.Id);
+
+        Assert.NotNull(loja.FotoPerfilUrl);
+        Assert.StartsWith("https://storage.test/foto-perfil-loja-test/lojas/usuarios/", loja.FotoPerfilUrl);
+        Assert.Equal(loja.FotoPerfilUrl, lojaSalva.FotoPerfilUrl);
+        Assert.Single(fixture.ArquivoStorageService.ArquivosSalvos);
+    }
+
+    [Fact]
     public async Task ObterPorIdAsync_DeveRetornarLojaAtivaPeloIdentificador()
     {
         using var fixture = new ServiceTestFixture();
@@ -206,6 +250,44 @@ public class LojaServiceTests
         Assert.NotEqual(telefoneUsuario.Id, lojaSalva.TelefoneId);
         Assert.Equal(enderecoUsuario.Cep, lojaSalva.Endereco!.Cep);
         Assert.Equal(telefoneUsuario.NumeroE164, lojaSalva.Telefone!.NumeroE164);
+    }
+
+    [Fact]
+    public async Task AtualizarMinhaLojaAsync_ComNovaFotoPerfil_DeveRemoverArquivoAnterior()
+    {
+        using var fixture = new ServiceTestFixture();
+        var usuario = await fixture.CriarUsuarioAsync("atualiza-foto-loja");
+        var loja = await fixture.CriarLojaAsync(usuario.Id, nomeFantasia: "Loja foto");
+
+        var primeiraAtualizacao = await fixture.LojaService.AtualizarMinhaLojaAsync(
+            usuario.Id,
+            new LojaAtualizacaoDto
+            {
+                NomeFantasia = loja.NomeFantasia,
+                TipoDocumentoFiscal = loja.TipoDocumentoFiscal,
+                DocumentoFiscal = loja.DocumentoFiscal,
+                FotoPerfilDataUrl = $"data:image/png;base64,{Convert.ToBase64String(new byte[] { 1, 2, 3 })}",
+                FotoPerfilNomeArquivo = "logo-1.png",
+                Ativa = loja.Ativa
+            });
+
+        var segundaAtualizacao = await fixture.LojaService.AtualizarMinhaLojaAsync(
+            usuario.Id,
+            new LojaAtualizacaoDto
+            {
+                NomeFantasia = "Loja foto atualizada",
+                TipoDocumentoFiscal = loja.TipoDocumentoFiscal,
+                DocumentoFiscal = loja.DocumentoFiscal,
+                FotoPerfilDataUrl = $"data:image/webp;base64,{Convert.ToBase64String(new byte[] { 9, 8, 7, 6 })}",
+                FotoPerfilNomeArquivo = "logo-2.webp",
+                Ativa = loja.Ativa
+            });
+
+        Assert.NotNull(primeiraAtualizacao);
+        Assert.NotNull(segundaAtualizacao);
+        Assert.NotEqual(primeiraAtualizacao!.FotoPerfilUrl, segundaAtualizacao!.FotoPerfilUrl);
+        Assert.Single(fixture.ArquivoStorageService.ArquivosRemovidos);
+        Assert.Equal(primeiraAtualizacao.FotoPerfilUrl, fixture.ArquivoStorageService.ArquivosRemovidos.Single());
     }
 
     [Fact]

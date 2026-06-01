@@ -37,6 +37,9 @@ namespace Omnimarket.Api.Models.Entidades
         [StringLength(120)]
         public string? EmailContato { get; set; }
 
+        [StringLength(500)]
+        public string? FotoPerfilUrl { get; set; }
+
         public int? EnderecoId { get; set; }
 
         [ForeignKey(nameof(EnderecoId))]
