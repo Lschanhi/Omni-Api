@@ -1,5 +1,7 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Omnimarket.Api.Data;
+using Omnimarket.Api.Models.Configuracoes;
 using Omnimarket.Api.Models.Dtos.Produtos;
 using Omnimarket.Api.Models.Dtos.Produtos.Midias;
 using Omnimarket.Api.Models.Entidades;
@@ -14,6 +16,8 @@ namespace Omnimarket.Api.Services
     public class ProdutoService : IProdutoService
     {
         private readonly DataContext _context;
+        private readonly IArquivoStorageService _arquivoStorageService;
+        private readonly AzureBlobStorageOptions _blobStorageOptions;
         private const string TipoAlteracaoEdicaoDados = "EdicaoDados";
         private const string TipoAlteracaoStatusPublicacao = "AtualizacaoStatusPublicacao";
         private const string TipoAlteracaoEstoque = "AtualizacaoEstoque";
@@ -21,9 +25,14 @@ namespace Omnimarket.Api.Services
         private const string TipoAlteracaoDesativacaoCategoria = "DesativacaoCategoria";
         private const string MensagemMidiaInvalida = "Formato de midia invalido para o produto.";
 
-        public ProdutoService(DataContext context)
+        public ProdutoService(
+            DataContext context,
+            IArquivoStorageService arquivoStorageService,
+            IOptions<AzureBlobStorageOptions> blobStorageOptions)
         {
             _context = context;
+            _arquivoStorageService = arquivoStorageService;
+            _blobStorageOptions = blobStorageOptions.Value;
         }
 
         public async Task<IEnumerable<ProdutoLeituraDto>> GetAllAsync()
@@ -75,8 +84,7 @@ namespace Omnimarket.Api.Services
                 DtCriacao = DateTimeOffset.UtcNow
             };
 
-            AdicionarImagens(produto, dto.Imagens);
-
+            await AdicionarImagensAsync(produto, dto.Imagens, $"produtos/lojas/{loja.Id}/catalogo");
             _context.TBL_PRODUTO.Add(produto);
             await _context.SaveChangesAsync();
 
@@ -162,8 +170,9 @@ namespace Omnimarket.Api.Services
             if (alterouStatusPublicacao)
                 produto.StatusPublicacao = statusPublicacaoSolicitado!.Value;
 
+            List<string> urlsFotosRemovidas = [];
             if (dto.Imagens != null)
-                SincronizarImagens(produto, dto.Imagens);
+                urlsFotosRemovidas = await SincronizarImagensAsync(produto, dto.Imagens);
 
             var dataAlteracao = DateTimeOffset.UtcNow;
             produto.DtAtualizacao = dataAlteracao;
@@ -188,6 +197,9 @@ namespace Omnimarket.Api.Services
                 descricaoNova: descricaoNova);
 
             await _context.SaveChangesAsync();
+
+            foreach (var urlFotoRemovida in urlsFotosRemovidas)
+                await _arquivoStorageService.RemoverAsync(urlFotoRemovida);
 
             return true;
         }
@@ -389,11 +401,15 @@ namespace Omnimarket.Api.Services
                 .AsQueryable();
         }
 
-        private void SincronizarImagens(Produto produto, IEnumerable<string> imagens)
+        private async Task<List<string>> SincronizarImagensAsync(Produto produto, IEnumerable<string> imagens)
         {
             var entradasMidia = NormalizarImagens(imagens).ToList();
             var fotosAtuais = produto.Midias
                 .Where(m => m.Tipo == TipoMidiaProduto.Foto)
+                .ToList();
+            var urlsFotosRemovidas = fotosAtuais
+                .Select(m => m.Url)
+                .Where(url => !string.IsNullOrWhiteSpace(url))
                 .ToList();
 
             if (fotosAtuais.Count > 0)
@@ -411,10 +427,14 @@ namespace Omnimarket.Api.Services
             for (var index = 0; index < midiasNaoFoto.Count; index++)
                 midiasNaoFoto[index].Ordem = entradasMidia.Count + index;
 
-            AdicionarImagens(produto, entradasMidia);
+            await AdicionarImagensAsync(produto, entradasMidia);
+            return urlsFotosRemovidas;
         }
 
-        private static void AdicionarImagens(Produto produto, IEnumerable<string>? imagens)
+        private async Task AdicionarImagensAsync(
+            Produto produto,
+            IEnumerable<string>? imagens,
+            string? diretorioBase = null)
         {
             var entradasMidia = NormalizarImagens(imagens).ToList();
             if (entradasMidia.Count == 0)
@@ -430,7 +450,10 @@ namespace Omnimarket.Api.Services
 
             for (var index = 0; index < entradasMidia.Count; index++)
             {
-                produto.Midias.Add(CriarMidiaProduto(entradasMidia[index], ordemInicial + index));
+                produto.Midias.Add(await CriarMidiaProdutoAsync(
+                    entradasMidia[index],
+                    ordemInicial + index,
+                    diretorioBase ?? $"produtos/{produto.Id}/catalogo"));
             }
         }
 
@@ -446,7 +469,10 @@ namespace Omnimarket.Api.Services
                 .ToList();
         }
 
-        private static ProdutoMidia CriarMidiaProduto(string entradaMidia, int ordem)
+        private async Task<ProdutoMidia> CriarMidiaProdutoAsync(
+            string entradaMidia,
+            int ordem,
+            string diretorioBase)
         {
             if (ProdutoMidiaHelper.EhDataUrl(entradaMidia))
             {
@@ -456,14 +482,23 @@ namespace Omnimarket.Api.Services
                     throw new InvalidOperationException("Cada midia do produto deve ter no maximo 15 MB.");
 
                 var tipo = ProdutoMidiaHelper.DeterminarTipoMidia(mimeType, null, MensagemMidiaInvalida);
+                var nomeArquivo = ProdutoMidiaHelper.SanitizarNomeArquivo(null, tipo);
+
+                await using var memoryStream = new MemoryStream(conteudo);
+                var urlBlob = await _arquivoStorageService.SalvarAsync(
+                    ObterContainerProduto(tipo),
+                    diretorioBase,
+                    nomeArquivo,
+                    mimeType,
+                    memoryStream);
 
                 return new ProdutoMidia
                 {
                     Tipo = tipo,
-                    Url = string.Empty,
+                    Url = urlBlob,
                     ContentType = mimeType,
-                    NomeArquivo = ProdutoMidiaHelper.SanitizarNomeArquivo(null, tipo),
-                    Conteudo = conteudo,
+                    NomeArquivo = nomeArquivo,
+                    Conteudo = null,
                     Ordem = ordem
                 };
             }
@@ -479,6 +514,13 @@ namespace Omnimarket.Api.Services
                 Conteudo = null,
                 Ordem = ordem
             };
+        }
+
+        private string ObterContainerProduto(TipoMidiaProduto tipo)
+        {
+            return tipo == TipoMidiaProduto.Video
+                ? _blobStorageOptions.VideoProdutoContainerName
+                : _blobStorageOptions.FotoProdutoContainerName;
         }
 
         private static string NormalizarTextoObrigatorio(string? valor, string mensagemErro)

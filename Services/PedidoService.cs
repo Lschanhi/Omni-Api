@@ -13,6 +13,13 @@ namespace Omnimarket.Api.Services
 {
     public class PedidoService
     {
+        private static readonly StatusSolicitacaoCancelamento[] StatusesSolicitacaoCancelamentoAtiva =
+        [
+            StatusSolicitacaoCancelamento.Aberta,
+            StatusSolicitacaoCancelamento.EmAnalise,
+            StatusSolicitacaoCancelamento.Aprovada
+        ];
+
         private readonly DataContext _context;
         private readonly FinanceiroService _financeiroService;
 
@@ -136,7 +143,12 @@ namespace Omnimarket.Api.Services
                 .ThenInclude(produto => produto.Loja)
                 .FirstOrDefaultAsync(p => p.Id == id && p.UsuarioId == usuarioId);
 
-            return pedido == null ? null : MapearPedido(pedido);
+            if (pedido == null)
+                return null;
+
+            var possuiSolicitacaoCancelamentoAtiva = await ExisteSolicitacaoCancelamentoAtivaDoPedidoAsync(pedido.Id);
+
+            return MapearPedido(pedido, possuiSolicitacaoCancelamentoAtiva);
         }
 
         public async Task<PageResult<LojaPedidoLeituraDto>> ListarPedidosDaLojaAsync(
@@ -173,7 +185,7 @@ namespace Omnimarket.Api.Services
 
             if (statusVenda.HasValue)
             {
-                var statusVendasFiltro = ObterStatusVendaPersistidosParaFiltro(statusVenda.Value);
+                var statusVendasFiltro = VendaStatusHelper.ObterStatusPersistidosParaFiltro(statusVenda.Value);
                 query = query.Where(p =>
                     _context.TBL_VENDA.Any(v =>
                         v.PedidoId == p.Id &&
@@ -220,7 +232,12 @@ namespace Omnimarket.Api.Services
                 .OrderByDescending(p => p.DataPedido)
                 .ToListAsync();
 
-            return pedidos.Select(MapearPedido).ToList();
+            var pedidoIds = pedidos.Select(p => p.Id).ToList();
+            var pedidosComSolicitacaoAtiva = await BuscarPedidosComSolicitacaoCancelamentoAtivaAsync(pedidoIds);
+
+            return pedidos
+                .Select(p => MapearPedido(p, pedidosComSolicitacaoAtiva.Contains(p.Id)))
+                .ToList();
         }
 
         public async Task<LojaPedidoLeituraDto?> AtualizarStatusPedidoDaLojaAsync(
@@ -265,13 +282,13 @@ namespace Omnimarket.Api.Services
             if (pedido.StatusPedidosId == StatusPedido.Enviado)
             {
                 throw new Exception(
-                    "Pedido enviado nao pode ser cancelado pelo cliente. Nesse caso o ideal e abrir um atendimento para devolucao.");
+                    "Pedido enviado nao pode ser cancelado diretamente pelo cliente. Abra uma SolicitacaoCancelamento para tratar devolucao ou cancelamento.");
             }
 
             if (pedido.StatusPedidosId == StatusPedido.Entregue)
             {
                 throw new Exception(
-                    "Pedido entregue nao pode ser cancelado. Nesse caso o ideal e seguir o fluxo de devolucao.");
+                    "Pedido entregue nao pode ser cancelado diretamente. Abra uma SolicitacaoCancelamento para seguir o fluxo de devolucao.");
             }
 
             if (pedido.StatusPedidosId != StatusPedido.Pendente &&
@@ -322,7 +339,7 @@ namespace Omnimarket.Api.Services
             if (venda.Pedido.StatusPedidosId != StatusPedido.Pago)
                 throw new InvalidOperationException("Somente pedidos pagos podem ser aceitos pela loja.");
 
-            var statusAtual = ObterStatusVendaOperacional(venda.StatusVenda);
+            var statusAtual = VendaStatusHelper.ObterStatusOperacional(venda.StatusVenda);
 
             if (statusAtual == StatusVenda.EmSeparacao)
                 throw new InvalidOperationException("A sua loja ja colocou este pedido em separacao.");
@@ -360,7 +377,7 @@ namespace Omnimarket.Api.Services
             if (venda.Pedido.StatusPedidosId == StatusPedido.Cancelado || venda.StatusVenda == StatusVenda.Cancelada)
                 throw new InvalidOperationException("Pedido cancelado nao pode ser marcado como pronto pela loja.");
 
-            var statusAtual = ObterStatusVendaOperacional(venda.StatusVenda);
+            var statusAtual = VendaStatusHelper.ObterStatusOperacional(venda.StatusVenda);
 
             if (statusAtual == StatusVenda.Pronto)
                 throw new InvalidOperationException("A sua loja ja marcou este pedido como pronto.");
@@ -395,7 +412,7 @@ namespace Omnimarket.Api.Services
             if (venda.Pedido.StatusPedidosId == StatusPedido.Cancelado || venda.StatusVenda == StatusVenda.Cancelada)
                 throw new InvalidOperationException("Pedido cancelado nao pode ser enviado pela loja.");
 
-            var statusAtual = ObterStatusVendaOperacional(venda.StatusVenda);
+            var statusAtual = VendaStatusHelper.ObterStatusOperacional(venda.StatusVenda);
 
             if (statusAtual == StatusVenda.Enviada)
                 throw new InvalidOperationException("A sua loja ja marcou este pedido como enviado.");
@@ -456,11 +473,11 @@ namespace Omnimarket.Api.Services
 
             if (pedido.StatusPedidosId == StatusPedido.Enviado ||
                 pedido.StatusPedidosId == StatusPedido.Entregue ||
-                ObterStatusVendaOperacional(venda?.StatusVenda) == StatusVenda.Enviada ||
-                ObterStatusVendaOperacional(venda?.StatusVenda) == StatusVenda.Concluida)
+                VendaStatusHelper.ObterStatusOperacional(venda?.StatusVenda) == StatusVenda.Enviada ||
+                VendaStatusHelper.ObterStatusOperacional(venda?.StatusVenda) == StatusVenda.Concluida)
             {
                 throw new InvalidOperationException(
-                    "Pedido enviado ou concluido nao pode ser cancelado pela loja.");
+                    "Pedido enviado ou concluido nao pode ser cancelado diretamente pela loja. Use a SolicitacaoCancelamento para registrar e tratar o caso.");
             }
 
             if (pedido.StatusPedidosId != StatusPedido.Pendente &&
@@ -552,6 +569,12 @@ namespace Omnimarket.Api.Services
 
             if (pedido.StatusPedidosId != StatusPedido.Enviado)
                 throw new InvalidOperationException("Somente pedidos enviados podem ser confirmados como entregues.");
+
+            if (await ExisteSolicitacaoCancelamentoAtivaDoPedidoAsync(pedidoId))
+            {
+                throw new InvalidOperationException(
+                    "Existe uma SolicitacaoCancelamento ativa para este pedido. Resolva a tratativa antes de confirmar o recebimento.");
+            }
 
             pedido.StatusPedidosId = StatusPedido.Entregue;
 
@@ -720,6 +743,9 @@ namespace Omnimarket.Api.Services
                 .Where(v => pedidoIds.Contains(v.PedidoId) && v.VendedorId == vendedorId)
                 .ToListAsync();
 
+            var vendaIds = vendas.Select(v => v.Id).ToList();
+            var vendasComSolicitacaoAtiva = await BuscarVendasComSolicitacaoCancelamentoAtivaAsync(vendaIds);
+
             var pedidosPorId = pedidos.ToDictionary(p => p.Id);
             var vendasPorPedidoId = vendas.ToDictionary(v => v.PedidoId);
             var resultados = new List<LojaPedidoLeituraDto>(pedidoIds.Count);
@@ -730,7 +756,11 @@ namespace Omnimarket.Api.Services
                     continue;
 
                 vendasPorPedidoId.TryGetValue(pedidoId, out var venda);
-                var dto = MapearPedidoDaLoja(pedido, venda, lojaId);
+                var dto = MapearPedidoDaLoja(
+                    pedido,
+                    venda,
+                    lojaId,
+                    venda != null && vendasComSolicitacaoAtiva.Contains(venda.Id));
 
                 if (dto != null)
                     resultados.Add(dto);
@@ -739,7 +769,11 @@ namespace Omnimarket.Api.Services
             return resultados;
         }
 
-        private static LojaPedidoLeituraDto? MapearPedidoDaLoja(Pedido pedido, Venda? venda, int lojaId)
+        private static LojaPedidoLeituraDto? MapearPedidoDaLoja(
+            Pedido pedido,
+            Venda? venda,
+            int lojaId,
+            bool possuiSolicitacaoCancelamentoAtiva)
         {
             var itensDaLoja = pedido.Itens
                 .Where(i => i.Produto?.LojaId == lojaId)
@@ -755,7 +789,7 @@ namespace Omnimarket.Api.Services
                 .Distinct()
                 .Count() > 1;
 
-            var statusVenda = ObterStatusVendaDaLojaParaExibicao(venda?.StatusVenda);
+            var statusVenda = VendaStatusHelper.ObterStatusParaExibicao(venda?.StatusVenda);
 
             return new LojaPedidoLeituraDto
             {
@@ -782,6 +816,10 @@ namespace Omnimarket.Api.Services
                 CidadeEntrega = pedido.CidadeEntrega,
                 UfEntrega = pedido.UfEntrega,
                 PedidoMultiloja = pedidoMultiloja,
+                AguardandoConfirmacaoRecebimento = pedido.StatusPedidosId == StatusPedido.Enviado &&
+                    statusVenda == StatusVenda.Enviada &&
+                    !possuiSolicitacaoCancelamentoAtiva,
+                PossuiSolicitacaoCancelamentoAtiva = possuiSolicitacaoCancelamentoAtiva,
                 PodeCancelar = PodeLojaCancelarPedido(pedido, venda, pedidoMultiloja),
                 PodeAceitar = PodeLojaAceitarPedido(pedido, venda),
                 PodeMarcarComoPronto = PodeLojaMarcarPedidoComoPronto(pedido, venda),
@@ -811,7 +849,7 @@ namespace Omnimarket.Api.Services
                 return false;
             }
 
-            return ObterStatusVendaOperacional(venda?.StatusVenda) switch
+            return VendaStatusHelper.ObterStatusOperacional(venda?.StatusVenda) switch
             {
                 StatusVenda.Enviada => false,
                 StatusVenda.Concluida => false,
@@ -825,7 +863,7 @@ namespace Omnimarket.Api.Services
             if (pedido.StatusPedidosId != StatusPedido.Pago || venda == null)
                 return false;
 
-            return ObterStatusVendaOperacional(venda.StatusVenda) == StatusVenda.Pendente;
+            return VendaStatusHelper.ObterStatusOperacional(venda.StatusVenda) == StatusVenda.Pendente;
         }
 
         private static bool PodeLojaMarcarPedidoComoPronto(Pedido pedido, Venda? venda)
@@ -833,7 +871,7 @@ namespace Omnimarket.Api.Services
             if (pedido.StatusPedidosId == StatusPedido.Cancelado || venda == null)
                 return false;
 
-            return ObterStatusVendaOperacional(venda.StatusVenda) == StatusVenda.EmSeparacao;
+            return VendaStatusHelper.ObterStatusOperacional(venda.StatusVenda) == StatusVenda.EmSeparacao;
         }
 
         private static bool PodeLojaMarcarPedidoComoEnviado(Pedido pedido, Venda? venda)
@@ -841,7 +879,7 @@ namespace Omnimarket.Api.Services
             if (pedido.StatusPedidosId == StatusPedido.Cancelado || venda == null)
                 return false;
 
-            return ObterStatusVendaOperacional(venda.StatusVenda) == StatusVenda.Pronto;
+            return VendaStatusHelper.ObterStatusOperacional(venda.StatusVenda) == StatusVenda.Pronto;
         }
 
         private async Task<Venda?> BuscarVendaDaLojaParaAtualizacaoAsync(
@@ -862,36 +900,6 @@ namespace Omnimarket.Api.Services
                 return null;
 
             throw new InvalidOperationException(mensagemQuandoSemVenda);
-        }
-
-        private static StatusVenda? ObterStatusVendaDaLojaParaExibicao(StatusVenda? statusVenda)
-        {
-            if (!statusVenda.HasValue || statusVenda == StatusVenda.Criada)
-                return null;
-
-            return ObterStatusVendaOperacional(statusVenda.Value);
-        }
-
-        private static StatusVenda ObterStatusVendaOperacional(StatusVenda? statusVenda)
-        {
-            if (!statusVenda.HasValue)
-                return StatusVenda.Criada;
-
-            return statusVenda.Value switch
-            {
-                StatusVenda.Paga => StatusVenda.Pendente,
-                _ => statusVenda.Value
-            };
-        }
-
-        private static StatusVenda[] ObterStatusVendaPersistidosParaFiltro(StatusVenda statusVenda)
-        {
-            return statusVenda switch
-            {
-                StatusVenda.Pendente => [StatusVenda.Paga, StatusVenda.Pendente],
-                StatusVenda.Paga => [StatusVenda.Paga, StatusVenda.Pendente],
-                _ => [statusVenda]
-            };
         }
 
         private async Task<bool> PedidoPertenceLojaAsync(int pedidoId, int lojaId, int vendedorId)
@@ -915,7 +923,54 @@ namespace Omnimarket.Api.Services
             return pageSize > 100 ? 100 : pageSize;
         }
 
-        private static PedidoLeituraDto MapearPedido(Pedido pedido)
+        private async Task<HashSet<int>> BuscarPedidosComSolicitacaoCancelamentoAtivaAsync(
+            IReadOnlyCollection<int> pedidoIds)
+        {
+            if (pedidoIds.Count == 0)
+                return [];
+
+            var ids = await _context.TBL_SOLICITACAO_CANCELAMENTO
+                .AsNoTracking()
+                .Where(s =>
+                    pedidoIds.Contains(s.PedidoId) &&
+                    StatusesSolicitacaoCancelamentoAtiva.Contains(s.Status))
+                .Select(s => s.PedidoId)
+                .Distinct()
+                .ToListAsync();
+
+            return ids.ToHashSet();
+        }
+
+        private async Task<HashSet<int>> BuscarVendasComSolicitacaoCancelamentoAtivaAsync(
+            IReadOnlyCollection<int> vendaIds)
+        {
+            if (vendaIds.Count == 0)
+                return [];
+
+            var ids = await _context.TBL_SOLICITACAO_CANCELAMENTO
+                .AsNoTracking()
+                .Where(s =>
+                    vendaIds.Contains(s.VendaId) &&
+                    StatusesSolicitacaoCancelamentoAtiva.Contains(s.Status))
+                .Select(s => s.VendaId)
+                .Distinct()
+                .ToListAsync();
+
+            return ids.ToHashSet();
+        }
+
+        private async Task<bool> ExisteSolicitacaoCancelamentoAtivaDoPedidoAsync(int pedidoId)
+        {
+            return await _context.TBL_SOLICITACAO_CANCELAMENTO
+                .AsNoTracking()
+                .AnyAsync(s =>
+                    s.PedidoId == pedidoId &&
+                    StatusesSolicitacaoCancelamentoAtiva.Contains(s.Status));
+        }
+
+        private static PedidoLeituraDto MapearPedido(
+            Pedido pedido,
+            bool possuiSolicitacaoCancelamentoAtiva)
         {
             return new PedidoLeituraDto
             {
@@ -934,6 +989,9 @@ namespace Omnimarket.Api.Services
                 CepEntrega = pedido.CepEntrega,
                 CidadeEntrega = pedido.CidadeEntrega,
                 UfEntrega = pedido.UfEntrega,
+                PodeConfirmarRecebimento = pedido.StatusPedidosId == StatusPedido.Enviado &&
+                    !possuiSolicitacaoCancelamentoAtiva,
+                PossuiSolicitacaoCancelamentoAtiva = possuiSolicitacaoCancelamentoAtiva,
                 Itens = pedido.Itens
                     .OrderBy(i => i.Id)
                     .Select(i => new ItemPedidoLeituraDto

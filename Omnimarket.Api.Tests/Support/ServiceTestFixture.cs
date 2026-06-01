@@ -7,6 +7,7 @@ internal sealed class ServiceTestFixture : IDisposable
     public const string SenhaPadrao = "Senha@123";
 
     public DataContext Context { get; }
+    public FakeArquivoStorageService ArquivoStorageService { get; }
     public AuthService AuthService { get; }
     public AvaliacaoProdutoService AvaliacaoProdutoService { get; }
     public CarrinhoService CarrinhoService { get; }
@@ -17,6 +18,7 @@ internal sealed class ServiceTestFixture : IDisposable
     public ProdutoService ProdutoService { get; }
     public ProdutoMidiaService ProdutoMidiaService { get; }
     public ReciboPedidoService ReciboPedidoService { get; }
+    public SolicitacaoCancelamentoService SolicitacaoCancelamentoService { get; }
     public TelefoneService TelefoneService { get; }
     public UsuarioPerfilService UsuarioPerfilService { get; }
 
@@ -46,6 +48,13 @@ internal sealed class ServiceTestFixture : IDisposable
 
         var tokenService = new TokenService(configuration);
         var gatewayPagamentoService = new GatewayPagamentoFakeService();
+        ArquivoStorageService = new FakeArquivoStorageService();
+        var blobStorageOptions = Microsoft.Extensions.Options.Options.Create(new AzureBlobStorageOptions
+        {
+            FotoPerfilContainerName = "foto-perfil-test",
+            FotoProdutoContainerName = "foto-produto-test",
+            VideoProdutoContainerName = "videos-produto-test"
+        });
 
         AvaliacaoProdutoService = new AvaliacaoProdutoService(Context);
         AuthService = new AuthService(Context, tokenService);
@@ -54,11 +63,12 @@ internal sealed class ServiceTestFixture : IDisposable
         FinanceiroService = new FinanceiroService(Context, gatewayPagamentoService);
         LojaService = new LojaService(Context);
         PedidoService = new PedidoService(Context, FinanceiroService);
-        ProdutoMidiaService = new ProdutoMidiaService(Context);
-        ProdutoService = new ProdutoService(Context);
+        ProdutoMidiaService = new ProdutoMidiaService(Context, ArquivoStorageService, blobStorageOptions);
+        ProdutoService = new ProdutoService(Context, ArquivoStorageService, blobStorageOptions);
         ReciboPedidoService = new ReciboPedidoService(Context);
+        SolicitacaoCancelamentoService = new SolicitacaoCancelamentoService(Context);
         TelefoneService = new TelefoneService(Context);
-        UsuarioPerfilService = new UsuarioPerfilService(Context);
+        UsuarioPerfilService = new UsuarioPerfilService(Context, ArquivoStorageService, blobStorageOptions);
     }
 
     public void Dispose()
@@ -600,3 +610,30 @@ internal sealed record PedidoPagoMultilojaScenario(
     int EstoqueInicialProdutoB,
     int QuantidadeProdutoA,
     int QuantidadeProdutoB);
+
+internal sealed class FakeArquivoStorageService : IArquivoStorageService
+{
+    public List<string> ArquivosSalvos { get; } = [];
+    public List<string> ArquivosRemovidos { get; } = [];
+
+    public Task<string> SalvarAsync(
+        string containerName,
+        string diretorio,
+        string nomeArquivo,
+        string contentType,
+        Stream conteudo,
+        CancellationToken cancellationToken = default)
+    {
+        var url = $"https://storage.test/{containerName.Trim('/')}/{diretorio.Trim('/')}/{Guid.NewGuid():N}-{Uri.EscapeDataString(nomeArquivo)}";
+        ArquivosSalvos.Add(url);
+        return Task.FromResult(url);
+    }
+
+    public Task RemoverAsync(string? urlArquivo, CancellationToken cancellationToken = default)
+    {
+        if (!string.IsNullOrWhiteSpace(urlArquivo))
+            ArquivosRemovidos.Add(urlArquivo);
+
+        return Task.CompletedTask;
+    }
+}

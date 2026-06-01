@@ -24,6 +24,9 @@ namespace Omnimarket.Api.Models.Entidades
         [StringLength(260)]
         public string NomeArquivo { get; set; } = string.Empty;
 
+        [StringLength(500)]
+        public string? Url { get; set; }
+
         [Required]
         public byte[] Conteudo { get; set; } = Array.Empty<byte>();
 

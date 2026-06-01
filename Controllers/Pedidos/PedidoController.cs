@@ -13,11 +13,16 @@ namespace Omnimarket.Api.Controllers
     {
         private readonly PedidoService _pedidoService;
         private readonly ReciboPedidoService _reciboPedidoService;
+        private readonly SolicitacaoCancelamentoService _solicitacaoCancelamentoService;
 
-        public PedidoController(PedidoService pedidoService, ReciboPedidoService reciboPedidoService)
+        public PedidoController(
+            PedidoService pedidoService,
+            ReciboPedidoService reciboPedidoService,
+            SolicitacaoCancelamentoService solicitacaoCancelamentoService)
         {
             _pedidoService = pedidoService;
             _reciboPedidoService = reciboPedidoService;
+            _solicitacaoCancelamentoService = solicitacaoCancelamentoService;
         }
 
         // Cria um pedido para o usuario autenticado a partir dos itens enviados no body
@@ -91,6 +96,75 @@ namespace Omnimarket.Api.Controllers
                 return Ok(new { mensagem = "Pedido cancelado com sucesso!" });
             }
             catch (Exception ex)
+            {
+                return BadRequest(new { mensagem = ex.Message });
+            }
+        }
+
+        [HttpGet("{id:int}/solicitacoes-cancelamento")]
+        public async Task<IActionResult> ListarSolicitacoesCancelamento(int id)
+        {
+            var usuarioId = User.GetUserId();
+            var solicitacoes = await _solicitacaoCancelamentoService.ListarDoPedidoAsync(id, usuarioId);
+
+            if (solicitacoes.Count == 0)
+            {
+                var pedido = await _pedidoService.BuscarPedido(id, usuarioId);
+                if (pedido == null)
+                    return NotFound(new { mensagem = "Pedido nao encontrado." });
+            }
+
+            return Ok(solicitacoes);
+        }
+
+        [HttpPost("{id:int}/solicitacoes-cancelamento")]
+        public async Task<IActionResult> CriarSolicitacaoCancelamento(
+            int id,
+            [FromBody] SolicitacaoCancelamentoCriacaoDto dto)
+        {
+            try
+            {
+                if (!ModelState.IsValid)
+                    return BadRequest(ModelState);
+
+                var usuarioId = User.GetUserId();
+                var solicitacao = await _solicitacaoCancelamentoService.CriarAsync(id, usuarioId, dto);
+
+                if (solicitacao == null)
+                    return NotFound(new { mensagem = "Pedido nao encontrado." });
+
+                return Ok(new
+                {
+                    mensagem = "Solicitacao de cancelamento criada com sucesso!",
+                    solicitacao
+                });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { mensagem = ex.Message });
+            }
+        }
+
+        [HttpPut("solicitacoes-cancelamento/{solicitacaoId:int}/cancelar")]
+        public async Task<IActionResult> CancelarSolicitacaoCancelamento(int solicitacaoId)
+        {
+            try
+            {
+                var usuarioId = User.GetUserId();
+                var solicitacao = await _solicitacaoCancelamentoService.CancelarPeloCompradorAsync(
+                    solicitacaoId,
+                    usuarioId);
+
+                if (solicitacao == null)
+                    return NotFound(new { mensagem = "Solicitacao de cancelamento nao encontrada." });
+
+                return Ok(new
+                {
+                    mensagem = "Solicitacao de cancelamento cancelada com sucesso!",
+                    solicitacao
+                });
+            }
+            catch (InvalidOperationException ex)
             {
                 return BadRequest(new { mensagem = ex.Message });
             }
