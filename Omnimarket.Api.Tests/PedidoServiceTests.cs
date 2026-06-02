@@ -274,6 +274,41 @@ public class PedidoServiceTests
     }
 
     [Fact]
+    public async Task CancelamentoPelaLoja_DeveAparecerComoCanceladoParaOComprador()
+    {
+        using var fixture = new ServiceTestFixture();
+        var scenario = await fixture.CriarPedidoPagoAsync();
+        var lojaId = await fixture.Context.TBL_LOJA
+            .Where(l => l.UsuarioId == scenario.VendedorId)
+            .Select(l => l.Id)
+            .SingleAsync();
+
+        var pedidoLoja = await fixture.PedidoService.AtualizarStatusPedidoDaLojaAsync(
+            lojaId,
+            scenario.VendedorId,
+            scenario.PedidoId,
+            StatusVenda.Cancelada);
+
+        Assert.NotNull(pedidoLoja);
+        Assert.Equal(StatusPedido.Cancelado, pedidoLoja!.StatusPedido);
+
+        var pedidoComprador = await fixture.PedidoService.BuscarPedido(
+            scenario.PedidoId,
+            scenario.CompradorId);
+
+        Assert.NotNull(pedidoComprador);
+        Assert.Equal(StatusPedido.Cancelado, pedidoComprador!.Status);
+        Assert.False(pedidoComprador.PodeConfirmarRecebimento);
+
+        var pedidosDoComprador = await fixture.PedidoService.ListarPedidosUsuario(scenario.CompradorId);
+        var pedidoListado = Assert.Single(pedidosDoComprador);
+
+        Assert.Equal(scenario.PedidoId, pedidoListado.Id);
+        Assert.Equal(StatusPedido.Cancelado, pedidoListado.Status);
+        Assert.False(pedidoListado.PodeConfirmarRecebimento);
+    }
+
+    [Fact]
     public async Task ListarPedidosDaLoja_DeveRetornarPedidoPendenteMesmoSemVendaCriada()
     {
         using var fixture = new ServiceTestFixture();

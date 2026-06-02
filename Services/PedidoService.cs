@@ -31,17 +31,15 @@ namespace Omnimarket.Api.Services
 
         public async Task<Pedido> CriarPedido(int usuarioId, PedidoDto dto)
         {
-            var usuarioExiste = await _context.TBL_USUARIO.AnyAsync(u => u.Id == usuarioId);
-            if (!usuarioExiste)
-                throw new Exception("Usuario nao encontrado.");
-
             if (!EntregaHelper.TipoEntregaValido(dto.TipoEntregaId))
                 throw new Exception("Tipo de entrega invalido.");
 
-            await using var transaction = await _context.Database.BeginTransactionAsync();
-
-            try
+            return await ExecutarComEstrategiaETransacaoAsync(async () =>
             {
+                var usuarioExiste = await _context.TBL_USUARIO.AnyAsync(u => u.Id == usuarioId);
+                if (!usuarioExiste)
+                    throw new Exception("Usuario nao encontrado.");
+
                 var enderecoEntrega = await ResolverEnderecoEntrega(usuarioId, dto.EnderecoId);
                 var itensOrigem = await ResolverItensDoPedidoAsync(usuarioId, dto);
 
@@ -118,21 +116,11 @@ namespace Omnimarket.Api.Services
                 await RemoverItensCompradosDoCarrinhoAsync(usuarioId, itensAgrupados);
                 await _context.TBL_PEDIDO.AddAsync(pedido);
                 await _context.SaveChangesAsync();
-                await transaction.CommitAsync();
 
                 return pedido;
-            }
-            catch (DbUpdateConcurrencyException)
-            {
-                await transaction.RollbackAsync();
-                throw new InvalidOperationException(
-                    "O estoque foi atualizado durante a finalizacao do pedido. Revise o carrinho e tente novamente.");
-            }
-            catch
-            {
-                await transaction.RollbackAsync();
-                throw;
-            }
+            },
+            () => new InvalidOperationException(
+                "O estoque foi atualizado durante a finalizacao do pedido. Revise o carrinho e tente novamente."));
         }
 
         public async Task<PedidoLeituraDto?> BuscarPedido(int id, int usuarioId)
@@ -264,62 +252,50 @@ namespace Omnimarket.Api.Services
 
         public async Task<bool> CancelarPedido(int pedidoId, int usuarioId)
         {
-            var pedido = await _context.TBL_PEDIDO
-                .Include(p => p.Itens)
-                .ThenInclude(i => i.Produto)
-                .ThenInclude(produto => produto.Loja)
-                .FirstOrDefaultAsync(p => p.Id == pedidoId);
-
-            if (pedido == null)
-                return false;
-
-            if (pedido.UsuarioId != usuarioId)
-                throw new Exception("Voce nao pode cancelar pedidos que nao sao seus.");
-
-            if (pedido.StatusPedidosId == StatusPedido.Cancelado)
-                throw new Exception("Este pedido ja esta cancelado.");
-
-            if (pedido.StatusPedidosId == StatusPedido.Enviado)
+            return await ExecutarComEstrategiaETransacaoAsync(async () =>
             {
-                throw new Exception(
-                    "Pedido enviado nao pode ser cancelado diretamente pelo cliente. Abra uma SolicitacaoCancelamento para tratar devolucao ou cancelamento.");
-            }
+                var pedido = await _context.TBL_PEDIDO
+                    .Include(p => p.Itens)
+                    .ThenInclude(i => i.Produto)
+                    .ThenInclude(produto => produto.Loja)
+                    .FirstOrDefaultAsync(p => p.Id == pedidoId);
 
-            if (pedido.StatusPedidosId == StatusPedido.Entregue)
-            {
-                throw new Exception(
-                    "Pedido entregue nao pode ser cancelado diretamente. Abra uma SolicitacaoCancelamento para seguir o fluxo de devolucao.");
-            }
+                if (pedido == null)
+                    return false;
 
-            if (pedido.StatusPedidosId != StatusPedido.Pendente &&
-                pedido.StatusPedidosId != StatusPedido.Pago)
-            {
-                throw new Exception("Somente pedidos pendentes ou pagos podem ser cancelados pelo cliente.");
-            }
+                if (pedido.UsuarioId != usuarioId)
+                    throw new Exception("Voce nao pode cancelar pedidos que nao sao seus.");
 
-            await using var transaction = await _context.Database.BeginTransactionAsync();
+                if (pedido.StatusPedidosId == StatusPedido.Cancelado)
+                    throw new Exception("Este pedido ja esta cancelado.");
 
-            try
-            {
+                if (pedido.StatusPedidosId == StatusPedido.Enviado)
+                {
+                    throw new Exception(
+                        "Pedido enviado nao pode ser cancelado diretamente pelo cliente. Abra uma SolicitacaoCancelamento para tratar devolucao ou cancelamento.");
+                }
+
+                if (pedido.StatusPedidosId == StatusPedido.Entregue)
+                {
+                    throw new Exception(
+                        "Pedido entregue nao pode ser cancelado diretamente. Abra uma SolicitacaoCancelamento para seguir o fluxo de devolucao.");
+                }
+
+                if (pedido.StatusPedidosId != StatusPedido.Pendente &&
+                    pedido.StatusPedidosId != StatusPedido.Pago)
+                {
+                    throw new Exception("Somente pedidos pendentes ou pagos podem ser cancelados pelo cliente.");
+                }
+
                 await CancelarPedidoInternoAsync(
                     pedido,
                     usuarioId,
                     "cancelamento-cliente");
 
-                await transaction.CommitAsync();
                 return true;
-            }
-            catch (DbUpdateConcurrencyException)
-            {
-                await transaction.RollbackAsync();
-                throw new InvalidOperationException(
-                    "O estoque de um ou mais produtos foi alterado durante o cancelamento. Tente novamente.");
-            }
-            catch
-            {
-                await transaction.RollbackAsync();
-                throw;
-            }
+            },
+            () => new InvalidOperationException(
+                "O estoque de um ou mais produtos foi alterado durante o cancelamento. Tente novamente."));
         }
 
         private async Task<bool> AceitarPedidoDaLojaAsync(int lojaId, int vendedorId, int pedidoId)
@@ -444,72 +420,60 @@ namespace Omnimarket.Api.Services
 
         private async Task<bool> CancelarPedidoDaLojaAsync(int lojaId, int vendedorId, int pedidoId)
         {
-            var pedido = await _context.TBL_PEDIDO
-                .Include(p => p.Itens)
-                .ThenInclude(i => i.Produto)
-                .FirstOrDefaultAsync(p =>
-                    p.Id == pedidoId &&
-                    (p.Itens.Any(i => i.Produto.LojaId == lojaId) ||
-                     _context.TBL_VENDA.Any(v => v.PedidoId == p.Id && v.VendedorId == vendedorId)));
-
-            if (pedido == null)
-                return false;
-
-            var venda = await _context.TBL_VENDA
-                .FirstOrDefaultAsync(v => v.PedidoId == pedidoId && v.VendedorId == vendedorId);
-
-            if (pedido.StatusPedidosId == StatusPedido.Cancelado || venda?.StatusVenda == StatusVenda.Cancelada)
-                throw new InvalidOperationException("Este pedido ja esta cancelado.");
-
-            if (pedido.Itens
-                .Where(i => i.Produto != null)
-                .Select(i => i.Produto.LojaId)
-                .Distinct()
-                .Count() > 1)
+            return await ExecutarComEstrategiaETransacaoAsync(async () =>
             {
-                throw new InvalidOperationException(
-                    "Cancelamento pela loja ainda nao esta disponivel para pedidos com itens de outras lojas.");
-            }
+                var pedido = await _context.TBL_PEDIDO
+                    .Include(p => p.Itens)
+                    .ThenInclude(i => i.Produto)
+                    .FirstOrDefaultAsync(p =>
+                        p.Id == pedidoId &&
+                        (p.Itens.Any(i => i.Produto.LojaId == lojaId) ||
+                         _context.TBL_VENDA.Any(v => v.PedidoId == p.Id && v.VendedorId == vendedorId)));
 
-            if (pedido.StatusPedidosId == StatusPedido.Enviado ||
-                pedido.StatusPedidosId == StatusPedido.Entregue ||
-                VendaStatusHelper.ObterStatusOperacional(venda?.StatusVenda) == StatusVenda.Enviada ||
-                VendaStatusHelper.ObterStatusOperacional(venda?.StatusVenda) == StatusVenda.Concluida)
-            {
-                throw new InvalidOperationException(
-                    "Pedido enviado ou concluido nao pode ser cancelado diretamente pela loja. Use a SolicitacaoCancelamento para registrar e tratar o caso.");
-            }
+                if (pedido == null)
+                    return false;
 
-            if (pedido.StatusPedidosId != StatusPedido.Pendente &&
-                pedido.StatusPedidosId != StatusPedido.Pago)
-            {
-                throw new InvalidOperationException(
-                    "Somente pedidos pendentes ou pagos podem ser cancelados pela loja.");
-            }
+                var venda = await _context.TBL_VENDA
+                    .FirstOrDefaultAsync(v => v.PedidoId == pedidoId && v.VendedorId == vendedorId);
 
-            await using var transaction = await _context.Database.BeginTransactionAsync();
+                if (pedido.StatusPedidosId == StatusPedido.Cancelado || venda?.StatusVenda == StatusVenda.Cancelada)
+                    throw new InvalidOperationException("Este pedido ja esta cancelado.");
 
-            try
-            {
+                if (pedido.Itens
+                    .Where(i => i.Produto != null)
+                    .Select(i => i.Produto.LojaId)
+                    .Distinct()
+                    .Count() > 1)
+                {
+                    throw new InvalidOperationException(
+                        "Cancelamento pela loja ainda nao esta disponivel para pedidos com itens de outras lojas.");
+                }
+
+                if (pedido.StatusPedidosId == StatusPedido.Enviado ||
+                    pedido.StatusPedidosId == StatusPedido.Entregue ||
+                    VendaStatusHelper.ObterStatusOperacional(venda?.StatusVenda) == StatusVenda.Enviada ||
+                    VendaStatusHelper.ObterStatusOperacional(venda?.StatusVenda) == StatusVenda.Concluida)
+                {
+                    throw new InvalidOperationException(
+                        "Pedido enviado ou concluido nao pode ser cancelado diretamente pela loja. Use a SolicitacaoCancelamento para registrar e tratar o caso.");
+                }
+
+                if (pedido.StatusPedidosId != StatusPedido.Pendente &&
+                    pedido.StatusPedidosId != StatusPedido.Pago)
+                {
+                    throw new InvalidOperationException(
+                        "Somente pedidos pendentes ou pagos podem ser cancelados pela loja.");
+                }
+
                 await CancelarPedidoInternoAsync(
                     pedido,
                     vendedorId,
                     "cancelamento-loja");
 
-                await transaction.CommitAsync();
                 return true;
-            }
-            catch (DbUpdateConcurrencyException)
-            {
-                await transaction.RollbackAsync();
-                throw new InvalidOperationException(
-                    "O estoque de um ou mais produtos foi alterado durante o cancelamento. Tente novamente.");
-            }
-            catch
-            {
-                await transaction.RollbackAsync();
-                throw;
-            }
+            },
+            () => new InvalidOperationException(
+                "O estoque de um ou mais produtos foi alterado durante o cancelamento. Tente novamente."));
         }
 
         public async Task<Pedido?> MarcarPedidoComoEnviadoAsync(int pedidoId)
@@ -1007,6 +971,35 @@ namespace Omnimarket.Api.Services
                     })
                     .ToList()
             };
+        }
+
+        private async Task<T> ExecutarComEstrategiaETransacaoAsync<T>(
+            Func<Task<T>> operacao,
+            Func<InvalidOperationException>? criarErroConcorrencia = null)
+        {
+            var strategy = _context.Database.CreateExecutionStrategy();
+
+            return await strategy.ExecuteAsync(async () =>
+            {
+                await using var transaction = await _context.Database.BeginTransactionAsync();
+
+                try
+                {
+                    var resultado = await operacao();
+                    await transaction.CommitAsync();
+                    return resultado;
+                }
+                catch (DbUpdateConcurrencyException) when (criarErroConcorrencia != null)
+                {
+                    await transaction.RollbackAsync();
+                    throw criarErroConcorrencia();
+                }
+                catch
+                {
+                    await transaction.RollbackAsync();
+                    throw;
+                }
+            });
         }
 
         private sealed record ItemAgrupadoPedido(int ProdutoId, int Quantidade);
