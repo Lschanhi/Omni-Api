@@ -1,5 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Design;
+using Microsoft.Extensions.Configuration;
+using Omnimarket.Api.Utils;
 
 namespace Omnimarket.Api.Data
 {
@@ -18,10 +20,9 @@ namespace Omnimarket.Api.Data
                 .AddEnvironmentVariables()
                 .Build();
 
-            var connectionString = configuration.GetConnectionString("ConexaoLocal");
-
-            if (string.IsNullOrWhiteSpace(connectionString))
-                throw new InvalidOperationException("Connection string 'ConexaoLocal' nao encontrada.");
+            var environmentName = configuration["ASPNETCORE_ENVIRONMENT"];
+            var isDevelopment = string.Equals(environmentName, "Development", StringComparison.OrdinalIgnoreCase);
+            var (_, connectionString) = ConnectionStringResolver.Resolve(configuration, isDevelopment);
 
             var optionsBuilder = new DbContextOptionsBuilder<DataContext>();
             optionsBuilder.UseSqlServer(connectionString);
