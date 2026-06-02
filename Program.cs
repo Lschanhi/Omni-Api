@@ -24,13 +24,9 @@ builder.Logging.AddDebug();
 // Permite sobreposicao local de segredos sem versionar no repositorio.
 builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
 
-var connectionString = builder.Configuration.GetConnectionString("ConexaoAzureBk");
-if (string.IsNullOrWhiteSpace(connectionString) ||
-    connectionString.Contains("SEU_SERVIDOR", StringComparison.OrdinalIgnoreCase))
-{
-    throw new InvalidOperationException(
-        "Configure ConnectionStrings:ConexaoLocal em appsettings.Local.json, User Secrets ou variavel de ambiente.");
-}
+var (connectionStringName, connectionString) = ConnectionStringResolver.Resolve(
+    builder.Configuration,
+    builder.Environment.IsDevelopment());
 
 var jwtKey = builder.Configuration["Jwt:Key"];
 if (string.IsNullOrWhiteSpace(jwtKey) ||
@@ -114,9 +110,16 @@ builder.Services.AddAuthentication(options =>
     };
 });
 
+// Permite usar a secao historica AzureBlobStorage em appsettings
+// e a secao BlobStorage no App Service, evitando prefixos reservados da plataforma.
+builder.Services.AddOptions<AzureBlobStorageOptions>()
+    .Configure<IConfiguration>((options, configuration) =>
+    {
+        configuration.GetSection(AzureBlobStorageOptions.SectionName).Bind(options);
+        configuration.GetSection(AzureBlobStorageOptions.AppServiceSectionName).Bind(options);
+    });
+
 // Servicos de negocio que serao injetados nos controllers.
-builder.Services.Configure<AzureBlobStorageOptions>(
-    builder.Configuration.GetSection(AzureBlobStorageOptions.SectionName));
     
 builder.Services.AddScoped<IArquivoStorageService, AzureBlobStorageService>();
 builder.Services.AddScoped<AuthService>();
@@ -209,6 +212,8 @@ builder.Services.AddSwaggerGen(options =>
 
 var app = builder.Build();
 app.UseDeveloperExceptionPage();
+
+app.Logger.LogInformation("Usando a connection string '{ConnectionStringName}' para o DataContext.", connectionStringName);
 
 await AdminSeedService.AplicarAsync(app.Services);
 

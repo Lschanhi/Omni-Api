@@ -61,11 +61,10 @@ namespace Omnimarket.Api.Services
 
         private BlobContainerClient CriarContainerClient(string containerName)
         {
-            if (string.IsNullOrWhiteSpace(_options.ConnectionString) ||
-                _options.ConnectionString.Contains("DEFINA_", StringComparison.OrdinalIgnoreCase))
+            if (!ConnectionStringConfigurada())
             {
                 throw new InvalidOperationException(
-                    "Configure AzureBlobStorage:ConnectionString em appsettings.Local.json, User Secrets ou variavel de ambiente.");
+                    "Configure AzureBlobStorage:ConnectionString ou BlobStorage:ConnectionString em appsettings.Local.json, User Secrets ou variavel de ambiente.");
             }
 
             var nomeContainer = containerName?.Trim();
@@ -77,7 +76,7 @@ namespace Omnimarket.Api.Services
             if (nomeContainer.Contains("SEU_", StringComparison.OrdinalIgnoreCase))
             {
                 throw new InvalidOperationException(
-                    "Configure os nomes reais dos containers de imagens em AzureBlobStorage.");
+                    "Configure os nomes reais dos containers de imagens em AzureBlobStorage ou BlobStorage.");
             }
 
             return new BlobContainerClient(_options.ConnectionString, nomeContainer);
@@ -143,14 +142,22 @@ namespace Omnimarket.Api.Services
 
         private BlobServiceClient CriarBlobServiceClient()
         {
-            if (string.IsNullOrWhiteSpace(_options.ConnectionString) ||
-                _options.ConnectionString.Contains("DEFINA_", StringComparison.OrdinalIgnoreCase))
+            if (!ConnectionStringConfigurada())
             {
                 throw new InvalidOperationException(
-                    "Configure AzureBlobStorage:ConnectionString em appsettings.Local.json, User Secrets ou variavel de ambiente.");
+                    "Configure AzureBlobStorage:ConnectionString ou BlobStorage:ConnectionString em appsettings.Local.json, User Secrets ou variavel de ambiente.");
             }
 
             return new BlobServiceClient(_options.ConnectionString);
+        }
+
+        private bool ConnectionStringConfigurada()
+        {
+            if (string.IsNullOrWhiteSpace(_options.ConnectionString))
+                return false;
+
+            return !_options.ConnectionString.Contains("DEFINA_", StringComparison.OrdinalIgnoreCase) &&
+                   !_options.ConnectionString.Contains("SEU_", StringComparison.OrdinalIgnoreCase);
         }
 
         private static string NormalizarSegmento(string valor)
