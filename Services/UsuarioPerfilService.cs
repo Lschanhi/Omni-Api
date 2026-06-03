@@ -81,7 +81,10 @@ namespace Omnimarket.Api.Services
                 .AsNoTracking()
                 .FirstOrDefaultAsync(f => f.UsuarioId == usuarioId);
 
-            return fotoPerfil == null ? null : MapearFotoPerfil(fotoPerfil);
+            if (fotoPerfil == null || string.IsNullOrWhiteSpace(ObterUrlLeitura(fotoPerfil)))
+                return null;
+
+            return MapearFotoPerfil(fotoPerfil);
         }
 
         public async Task<UsuarioFotoPerfilLeituraDto> AtualizarFotoPerfilAsync(
@@ -196,19 +199,16 @@ namespace Omnimarket.Api.Services
         {
             return new UsuarioFotoPerfilLeituraDto
             {
-                AvatarUrl = ObterUrlLeitura(fotoPerfil),
+                AvatarUrl = ObterUrlLeitura(fotoPerfil) ?? string.Empty,
                 MimeType = fotoPerfil.MimeType,
                 NomeArquivo = fotoPerfil.NomeArquivo,
                 DtAtualizacao = fotoPerfil.DtAtualizacao ?? fotoPerfil.DtCriacao
             };
         }
 
-        private static string ObterUrlLeitura(UsuarioFotoPerfil fotoPerfil)
+        private static string? ObterUrlLeitura(UsuarioFotoPerfil fotoPerfil)
         {
-            if (!string.IsNullOrWhiteSpace(fotoPerfil.Url))
-                return fotoPerfil.Url;
-
-            return $"data:{fotoPerfil.MimeType};base64,{Convert.ToBase64String(fotoPerfil.Conteudo)}";
+            return string.IsNullOrWhiteSpace(fotoPerfil.Url) ? null : fotoPerfil.Url;
         }
 
         private static (string MimeType, byte[] Conteudo) ConverterDataUrl(string dataUrl)

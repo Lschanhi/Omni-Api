@@ -27,16 +27,17 @@ namespace Omnimarket.Api.Utils
                 valor.StartsWith("data:", StringComparison.OrdinalIgnoreCase);
         }
 
+        public static bool EhUrlHttpOuHttpsAbsoluta(string? valor)
+        {
+            if (!Uri.TryCreate(valor, UriKind.Absolute, out var uri))
+                return false;
+
+            return uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps;
+        }
+
         public static string ObterUrlLeitura(ProdutoMidia midia)
         {
-            if (midia.Conteudo != null &&
-                midia.Conteudo.Length > 0 &&
-                !string.IsNullOrWhiteSpace(midia.ContentType))
-            {
-                return MontarDataUrl(midia.ContentType, midia.Conteudo);
-            }
-
-            return midia.Url;
+            return string.IsNullOrWhiteSpace(midia.Url) ? string.Empty : midia.Url;
         }
 
         public static string MontarDataUrl(string mimeType, byte[] conteudo)

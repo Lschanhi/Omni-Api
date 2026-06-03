@@ -503,14 +503,23 @@ namespace Omnimarket.Api.Services
                 };
             }
 
-            var tipoLegado = ProdutoMidiaHelper.DeterminarTipoMidia(null, entradaMidia, MensagemMidiaInvalida);
+            if (!ProdutoMidiaHelper.EhUrlHttpOuHttpsAbsoluta(entradaMidia))
+            {
+                throw new InvalidOperationException(
+                    "Use uma URL absoluta publicada para a midia do produto ou envie o arquivo em data URL.");
+            }
+
+            var uriMidia = new Uri(entradaMidia, UriKind.Absolute);
+            var caminhoArquivo = Uri.UnescapeDataString(uriMidia.AbsolutePath);
+            var tipoLegado = ProdutoMidiaHelper.DeterminarTipoMidia(null, caminhoArquivo, MensagemMidiaInvalida);
+            var nomeArquivoUrl = Path.GetFileName(caminhoArquivo);
 
             return new ProdutoMidia
             {
                 Tipo = tipoLegado,
-                Url = entradaMidia,
+                Url = uriMidia.ToString(),
                 ContentType = null,
-                NomeArquivo = ProdutoMidiaHelper.SanitizarNomeArquivo(entradaMidia, tipoLegado),
+                NomeArquivo = ProdutoMidiaHelper.SanitizarNomeArquivo(nomeArquivoUrl, tipoLegado),
                 Conteudo = null,
                 Ordem = ordem
             };
@@ -664,6 +673,7 @@ namespace Omnimarket.Api.Services
                 Imagens = midiasOrdenadas
                     .Where(m => m.Tipo == TipoMidiaProduto.Foto)
                     .Select(ProdutoMidiaHelper.ObterUrlLeitura)
+                    .Where(url => !string.IsNullOrWhiteSpace(url))
                     .ToList(),
                 Midias = midiasOrdenadas
                     .Select(ProdutoMidiaService.MapearMidia)

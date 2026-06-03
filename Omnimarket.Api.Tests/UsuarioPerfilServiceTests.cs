@@ -69,4 +69,28 @@ public class UsuarioPerfilServiceTests
         Assert.Empty(fixture.Context.TBL_USUARIO_FOTO_PERFIL);
         Assert.Single(fixture.ArquivoStorageService.ArquivosRemovidos);
     }
+
+    [Fact]
+    public async Task ObterFotoPerfilAsync_DeveIgnorarRegistroLegadoSemUrlBlob()
+    {
+        using var fixture = new ServiceTestFixture();
+        var usuario = await fixture.CriarUsuarioAsync("usuario-legado-sem-url");
+
+        fixture.Context.TBL_USUARIO_FOTO_PERFIL.Add(new UsuarioFotoPerfil
+        {
+            UsuarioId = usuario.Id,
+            MimeType = "image/png",
+            NomeArquivo = "avatar-legado.png",
+            Url = string.Empty,
+            Conteudo = [1, 2, 3]
+        });
+        await fixture.Context.SaveChangesAsync();
+
+        var fotoPerfil = await fixture.UsuarioPerfilService.ObterFotoPerfilAsync(usuario.Id);
+        var perfil = await fixture.UsuarioPerfilService.ObterPerfilAsync(usuario.Id);
+
+        Assert.Null(fotoPerfil);
+        Assert.NotNull(perfil);
+        Assert.Null(perfil!.AvatarUrl);
+    }
 }
