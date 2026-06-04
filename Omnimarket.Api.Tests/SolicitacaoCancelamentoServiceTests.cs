@@ -137,6 +137,45 @@ public class SolicitacaoCancelamentoServiceTests
     }
 
     [Fact]
+    public async Task ListarDaLojaAsync_DeveRetornarSolicitacaoCriadaPeloComprador()
+    {
+        using var fixture = new ServiceTestFixture();
+        var scenario = await fixture.CriarPedidoPagoAsync();
+        var lojaId = await fixture.Context.TBL_LOJA
+            .Where(l => l.UsuarioId == scenario.VendedorId)
+            .Select(l => l.Id)
+            .SingleAsync();
+
+        await fixture.PedidoService.MarcarPedidoComoEnviadoAsync(scenario.PedidoId);
+
+        var solicitacaoCriada = await fixture.SolicitacaoCancelamentoService.CriarAsync(
+            scenario.PedidoId,
+            scenario.CompradorId,
+            new SolicitacaoCancelamentoCriacaoDto
+            {
+                Motivo = MotivoSolicitacaoCancelamento.Arrependimento,
+                Observacao = "Cliente quer devolver o produto."
+            });
+
+        var pagina = await fixture.SolicitacaoCancelamentoService.ListarDaLojaAsync(
+            lojaId,
+            scenario.VendedorId,
+            status: null,
+            page: 1,
+            pageSize: 20);
+
+        var solicitacao = Assert.Single(pagina.Items);
+        Assert.NotNull(solicitacaoCriada);
+        Assert.Equal(1, pagina.Total);
+        Assert.Equal(solicitacaoCriada!.Id, solicitacao.Id);
+        Assert.Equal(scenario.PedidoId, solicitacao.PedidoId);
+        Assert.Equal(lojaId, solicitacao.LojaId);
+        Assert.Equal(scenario.VendedorId, solicitacao.VendedorId);
+        Assert.Equal(StatusSolicitacaoCancelamento.Aberta, solicitacao.Status);
+        Assert.Equal(StatusVenda.Enviada, solicitacao.StatusVendaAtual);
+    }
+
+    [Fact]
     public async Task CancelarPeloCompradorAsync_DeveCancelarSolicitacaoAberta()
     {
         using var fixture = new ServiceTestFixture();

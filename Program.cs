@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.Extensions.FileProviders;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
@@ -122,6 +123,7 @@ builder.Services.AddOptions<AzureBlobStorageOptions>()
 // Servicos de negocio que serao injetados nos controllers.
     
 builder.Services.AddScoped<IArquivoStorageService, AzureBlobStorageService>();
+builder.Services.AddScoped<ArquivoUploadService>();
 builder.Services.AddScoped<AuthService>();
 builder.Services.AddScoped<UsuarioPerfilService>();
 builder.Services.AddScoped<TokenService>();
@@ -144,6 +146,7 @@ builder.Services.AddScoped<AdminLojaService>();
 builder.Services.AddScoped<AdminProdutoService>();
 builder.Services.AddScoped<AdminPedidoService>();
 builder.Services.AddScoped<AdminVendaService>();
+builder.Services.AddScoped<LegacyImageMigrationService>();
 
 // Permite configurar origens autorizadas via appsettings/variavel de ambiente,
 // mantendo um conjunto padrao util para desenvolvimento local.
@@ -215,15 +218,56 @@ app.UseDeveloperExceptionPage();
 
 app.Logger.LogInformation("Usando a connection string '{ConnectionStringName}' para o DataContext.", connectionStringName);
 
+if (args.Any(arg => string.Equals(arg, "--migrate-legacy-images", StringComparison.OrdinalIgnoreCase)))
+{
+    using var scope = app.Services.CreateScope();
+    var migracaoService = scope.ServiceProvider.GetRequiredService<LegacyImageMigrationService>();
+    var resultadoMigracao = await migracaoService.MigrarAsync();
+
+    app.Logger.LogInformation(
+        "Execucao manual da migracao de imagens finalizada. Total migrado: {TotalMigrado}. Pendencias: {Pendencias}. Ignorado: {Ignorado}.",
+        resultadoMigracao.TotalMigrado,
+        resultadoMigracao.Pendencias.Count,
+        resultadoMigracao.Ignorado);
+
+    return;
+}
+
 await AdminSeedService.AplicarAsync(app.Services);
+
+using (var scope = app.Services.CreateScope())
+{
+    var blobStorageOptions = scope.ServiceProvider.GetRequiredService<Microsoft.Extensions.Options.IOptions<AzureBlobStorageOptions>>().Value;
+    if (blobStorageOptions.MigrateLegacyImagesOnStartup)
+    {
+        var migracaoService = scope.ServiceProvider.GetRequiredService<LegacyImageMigrationService>();
+        await migracaoService.MigrarAsync();
+    }
+}
 
 // Pipeline HTTP da aplicacao.
 app.UseHttpsRedirection();
 app.UseCors("FrontendLocal");
 app.UseAuthentication();
 app.UseAuthorization();
-app.UseDefaultFiles();
-app.UseStaticFiles();
+
+var adminRootPath = Path.Combine(app.Environment.WebRootPath ?? Path.Combine(app.Environment.ContentRootPath, "wwwroot"), "admin");
+if (Directory.Exists(adminRootPath))
+{
+    var adminFileProvider = new PhysicalFileProvider(adminRootPath);
+
+    app.UseDefaultFiles(new DefaultFilesOptions
+    {
+        FileProvider = adminFileProvider,
+        RequestPath = "/admin"
+    });
+
+    app.UseStaticFiles(new StaticFileOptions
+    {
+        FileProvider = adminFileProvider,
+        RequestPath = "/admin"
+    });
+}
 
 
 

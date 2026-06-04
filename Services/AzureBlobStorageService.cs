@@ -38,7 +38,8 @@ namespace Omnimarket.Api.Services
                 {
                     HttpHeaders = new BlobHttpHeaders
                     {
-                        ContentType = contentType
+                        ContentType = contentType,
+                        CacheControl = "public, max-age=31536000, immutable"
                     }
                 },
                 cancellationToken);
@@ -57,6 +58,15 @@ namespace Omnimarket.Api.Services
             var containerClient = CriarContainerClient(containerName);
             var blobClient = containerClient.GetBlobClient(blobName);
             await blobClient.DeleteIfExistsAsync(DeleteSnapshotsOption.IncludeSnapshots, cancellationToken: cancellationToken);
+        }
+
+        public bool UrlPertenceAoContainer(string? urlArquivo, string containerName)
+        {
+            if (string.IsNullOrWhiteSpace(containerName) || string.IsNullOrWhiteSpace(urlArquivo))
+                return false;
+
+            return TryObterBlobInfo(urlArquivo, out var containerNameUrl, out _) &&
+                string.Equals(containerNameUrl, containerName.Trim(), StringComparison.OrdinalIgnoreCase);
         }
 
         private BlobContainerClient CriarContainerClient(string containerName)

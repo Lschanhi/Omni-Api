@@ -192,7 +192,7 @@ namespace Omnimarket.Api.Services
                         .OrderBy(m => m.Ordem)
                         .Where(m => m.Tipo == TipoMidiaProduto.Foto)
                         .Select(ProdutoMidiaHelper.ObterUrlLeitura)
-                        .FirstOrDefault()
+                        .FirstOrDefault(url => !string.IsNullOrWhiteSpace(url))
                 })
                 .ToList();
 

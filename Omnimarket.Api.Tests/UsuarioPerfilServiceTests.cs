@@ -50,6 +50,32 @@ public class UsuarioPerfilServiceTests
     }
 
     [Fact]
+    public async Task AtualizarFotoPerfilAsync_ComArquivoUrl_DevePersistirSomenteAReferencia()
+    {
+        using var fixture = new ServiceTestFixture();
+        var usuario = await fixture.CriarUsuarioAsync("usuario-com-url");
+        var urlBlob = await fixture.ArquivoStorageService.SalvarAsync(
+            "foto-perfil-test",
+            $"usuarios/{usuario.Id}/perfil",
+            "avatar-uploadado.png",
+            "image/png",
+            new MemoryStream([1, 2, 3, 4]));
+
+        var fotoPerfil = await fixture.UsuarioPerfilService.AtualizarFotoPerfilAsync(
+            usuario.Id,
+            new UsuarioFotoPerfilAtualizarDto
+            {
+                ArquivoUrl = urlBlob,
+                NomeArquivo = "avatar-uploadado.png",
+                MimeType = "image/png"
+            });
+
+        Assert.Equal(urlBlob, fotoPerfil.AvatarUrl);
+        Assert.Equal("avatar-uploadado.png", fotoPerfil.NomeArquivo);
+        Assert.Single(fixture.ArquivoStorageService.ArquivosSalvos);
+    }
+
+    [Fact]
     public async Task RemoverFotoPerfilAsync_DeveExcluirRegistroDaFoto()
     {
         using var fixture = new ServiceTestFixture();
@@ -68,5 +94,29 @@ public class UsuarioPerfilServiceTests
         Assert.True(removida);
         Assert.Empty(fixture.Context.TBL_USUARIO_FOTO_PERFIL);
         Assert.Single(fixture.ArquivoStorageService.ArquivosRemovidos);
+    }
+
+    [Fact]
+    public async Task ObterFotoPerfilAsync_DeveIgnorarRegistroLegadoSemUrlBlob()
+    {
+        using var fixture = new ServiceTestFixture();
+        var usuario = await fixture.CriarUsuarioAsync("usuario-legado-sem-url");
+
+        fixture.Context.TBL_USUARIO_FOTO_PERFIL.Add(new UsuarioFotoPerfil
+        {
+            UsuarioId = usuario.Id,
+            MimeType = "image/png",
+            NomeArquivo = "avatar-legado.png",
+            Url = string.Empty,
+            Conteudo = [1, 2, 3]
+        });
+        await fixture.Context.SaveChangesAsync();
+
+        var fotoPerfil = await fixture.UsuarioPerfilService.ObterFotoPerfilAsync(usuario.Id);
+        var perfil = await fixture.UsuarioPerfilService.ObterPerfilAsync(usuario.Id);
+
+        Assert.Null(fotoPerfil);
+        Assert.NotNull(perfil);
+        Assert.Null(perfil!.AvatarUrl);
     }
 }

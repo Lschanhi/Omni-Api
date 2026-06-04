@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.Extensions.Options;
 using Omnimarket.Api.Data;
 using Omnimarket.Api.Models.Configuracoes;
@@ -13,9 +14,12 @@ namespace Omnimarket.Api.Services
     public class UsuarioPerfilService
     {
         private const int TamanhoMaximoFotoPerfilEmBytes = 2 * 1024 * 1024;
+        private const string MensagemFotoPerfilInvalida = "Envie a URL da imagem publicada ou uma imagem valida para a foto de perfil.";
+
         private readonly DataContext _context;
         private readonly IArquivoStorageService _arquivoStorageService;
         private readonly AzureBlobStorageOptions _blobStorageOptions;
+        private readonly FileExtensionContentTypeProvider _contentTypeProvider = new();
 
         public UsuarioPerfilService(
             DataContext context,
@@ -81,7 +85,10 @@ namespace Omnimarket.Api.Services
                 .AsNoTracking()
                 .FirstOrDefaultAsync(f => f.UsuarioId == usuarioId);
 
-            return fotoPerfil == null ? null : MapearFotoPerfil(fotoPerfil);
+            if (fotoPerfil == null || string.IsNullOrWhiteSpace(ObterUrlLeitura(fotoPerfil)))
+                return null;
+
+            return MapearFotoPerfil(fotoPerfil);
         }
 
         public async Task<UsuarioFotoPerfilLeituraDto> AtualizarFotoPerfilAsync(
@@ -92,24 +99,10 @@ namespace Omnimarket.Api.Services
             if (!usuarioExiste)
                 throw new InvalidOperationException("Usuario nao encontrado.");
 
-            var (mimeType, conteudo) = ConverterDataUrl(dto.DataUrl);
-            if (!mimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
-                throw new InvalidOperationException("Envie uma imagem valida para a foto de perfil.");
-
-            if (conteudo.Length > TamanhoMaximoFotoPerfilEmBytes)
-                throw new InvalidOperationException("A foto de perfil deve ter no maximo 2 MB.");
-
-            var nomeArquivo = SanitizarNomeArquivo(dto.NomeArquivo);
             var fotoPerfil = await _context.TBL_USUARIO_FOTO_PERFIL
                 .FirstOrDefaultAsync(f => f.UsuarioId == usuarioId);
             var urlAnterior = fotoPerfil?.Url;
-            await using var memoryStream = new MemoryStream(conteudo);
-            var urlBlob = await _arquivoStorageService.SalvarAsync(
-                _blobStorageOptions.FotoPerfilContainerName,
-                $"usuarios/{usuarioId}/perfil",
-                nomeArquivo,
-                mimeType,
-                memoryStream);
+            var (urlBlob, mimeType, nomeArquivo) = await ResolverFotoPerfilAsync(usuarioId, dto);
 
             if (fotoPerfil == null)
             {
@@ -143,6 +136,53 @@ namespace Omnimarket.Api.Services
             }
 
             return MapearFotoPerfil(fotoPerfil);
+        }
+
+        private async Task<(string UrlBlob, string MimeType, string NomeArquivo)> ResolverFotoPerfilAsync(
+            int usuarioId,
+            UsuarioFotoPerfilAtualizarDto dto)
+        {
+            if (!string.IsNullOrWhiteSpace(dto.ArquivoUrl))
+            {
+                var urlBlob = dto.ArquivoUrl.Trim();
+                if (!_arquivoStorageService.UrlPertenceAoContainer(urlBlob, _blobStorageOptions.FotoPerfilContainerName))
+                {
+                    throw new InvalidOperationException(
+                        "Use uma URL valida da rota de upload da foto de perfil.");
+                }
+
+                var nomeArquivo = SanitizarNomeArquivo(
+                    !string.IsNullOrWhiteSpace(dto.NomeArquivo)
+                        ? dto.NomeArquivo
+                        : ArquivoUrlHelper.ExtrairNomeArquivo(urlBlob));
+                var mimeType = ResolverMimeTypeImagem(
+                    dto.MimeType,
+                    nomeArquivo,
+                    "Informe um tipo de imagem valido para a foto de perfil.");
+
+                return (urlBlob, mimeType, nomeArquivo);
+            }
+
+            if (string.IsNullOrWhiteSpace(dto.DataUrl))
+                throw new InvalidOperationException(MensagemFotoPerfilInvalida);
+
+            var (mimeTypeDataUrl, conteudo) = ConverterDataUrl(dto.DataUrl);
+            if (!mimeTypeDataUrl.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("Envie uma imagem valida para a foto de perfil.");
+
+            if (conteudo.Length > TamanhoMaximoFotoPerfilEmBytes)
+                throw new InvalidOperationException("A foto de perfil deve ter no maximo 2 MB.");
+
+            var nomeArquivoDataUrl = SanitizarNomeArquivo(dto.NomeArquivo);
+            await using var memoryStream = new MemoryStream(conteudo);
+            var urlBlobDataUrl = await _arquivoStorageService.SalvarAsync(
+                _blobStorageOptions.FotoPerfilContainerName,
+                $"usuarios/{usuarioId}/perfil",
+                nomeArquivoDataUrl,
+                mimeTypeDataUrl,
+                memoryStream);
+
+            return (urlBlobDataUrl, mimeTypeDataUrl, nomeArquivoDataUrl);
         }
 
         public async Task<bool> RemoverFotoPerfilAsync(int usuarioId)
@@ -196,25 +236,44 @@ namespace Omnimarket.Api.Services
         {
             return new UsuarioFotoPerfilLeituraDto
             {
-                AvatarUrl = ObterUrlLeitura(fotoPerfil),
+                AvatarUrl = ObterUrlLeitura(fotoPerfil) ?? string.Empty,
                 MimeType = fotoPerfil.MimeType,
                 NomeArquivo = fotoPerfil.NomeArquivo,
                 DtAtualizacao = fotoPerfil.DtAtualizacao ?? fotoPerfil.DtCriacao
             };
         }
 
-        private static string ObterUrlLeitura(UsuarioFotoPerfil fotoPerfil)
+        private static string? ObterUrlLeitura(UsuarioFotoPerfil fotoPerfil)
         {
-            if (!string.IsNullOrWhiteSpace(fotoPerfil.Url))
-                return fotoPerfil.Url;
+            return string.IsNullOrWhiteSpace(fotoPerfil.Url) ? null : fotoPerfil.Url;
+        }
 
-            return $"data:{fotoPerfil.MimeType};base64,{Convert.ToBase64String(fotoPerfil.Conteudo)}";
+        private string ResolverMimeTypeImagem(
+            string? mimeTypeInformado,
+            string nomeArquivo,
+            string mensagemErro)
+        {
+            var mimeType = mimeTypeInformado?.Trim();
+
+            if (string.IsNullOrWhiteSpace(mimeType) &&
+                _contentTypeProvider.TryGetContentType(nomeArquivo, out var mimeTypeInferido))
+            {
+                mimeType = mimeTypeInferido;
+            }
+
+            if (string.IsNullOrWhiteSpace(mimeType) ||
+                !mimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException(mensagemErro);
+            }
+
+            return mimeType;
         }
 
         private static (string MimeType, byte[] Conteudo) ConverterDataUrl(string dataUrl)
         {
             if (string.IsNullOrWhiteSpace(dataUrl))
-                throw new InvalidOperationException("Envie uma imagem valida para a foto de perfil.");
+                throw new InvalidOperationException(MensagemFotoPerfilInvalida);
 
             var marker = ";base64,";
             var base64SeparatorIndex = dataUrl.IndexOf(marker, StringComparison.OrdinalIgnoreCase);

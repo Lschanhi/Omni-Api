@@ -150,6 +150,48 @@ public class LojaServiceTests
     }
 
     [Fact]
+    public async Task CriarMinhaLojaAsync_ComFotoPerfilUrl_DevePersistirSomenteAReferencia()
+    {
+        using var fixture = new ServiceTestFixture();
+        var usuario = await fixture.CriarUsuarioAsync("loja-com-url");
+        var urlBlob = await fixture.ArquivoStorageService.SalvarAsync(
+            "foto-perfil-loja-test",
+            $"lojas/usuarios/{usuario.Id}/perfil",
+            "logo-uploadada.png",
+            "image/png",
+            new MemoryStream([1, 2, 3, 4]));
+
+        var loja = await fixture.LojaService.CriarMinhaLojaAsync(
+            usuario.Id,
+            new LojaCriacaoDto
+            {
+                NomeFantasia = "Loja com url",
+                TipoDocumentoFiscal = TipoDocumentoFiscalLoja.CPF,
+                DocumentoFiscal = usuario.Cpf,
+                FotoPerfilUrl = urlBlob,
+                NovoEnderecoLoja = new EnderecoCriacaoDto
+                {
+                    Cep = "01001000",
+                    TipoLogradouro = TiposLogradouroBR.Rua,
+                    NomeEndereco = "Rua da Loja",
+                    Numero = "10",
+                    Cidade = "Sao Paulo",
+                    Uf = "SP",
+                    IsPrincipal = true
+                },
+                NovoTelefoneLoja = new TelefoneCriacaoDto
+                {
+                    Ddd = "11",
+                    Numero = "999998888",
+                    IsPrincipal = true
+                }
+            });
+
+        Assert.Equal(urlBlob, loja.FotoPerfilUrl);
+        Assert.Single(fixture.ArquivoStorageService.ArquivosSalvos);
+    }
+
+    [Fact]
     public async Task ObterPorIdAsync_DeveRetornarLojaAtivaPeloIdentificador()
     {
         using var fixture = new ServiceTestFixture();

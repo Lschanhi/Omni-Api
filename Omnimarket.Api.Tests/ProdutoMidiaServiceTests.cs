@@ -81,7 +81,7 @@ public class ProdutoMidiaServiceTests
     }
 
     [Fact]
-    public async Task ObterCarrinhoAsync_DeveUsarFotoComoImagemPrincipalMesmoQuandoHaVideo()
+    public async Task ObterCarrinhoAsync_DeveIgnorarFotoLegadaSemUrlBlob()
     {
         using var fixture = new ServiceTestFixture();
         var vendedor = await fixture.CriarUsuarioAsync("seller-midias-cart");
@@ -123,7 +123,30 @@ public class ProdutoMidiaServiceTests
         var carrinho = await fixture.CarrinhoService.ObterCarrinhoAsync(comprador.Id);
 
         Assert.Single(carrinho.Itens);
-        Assert.StartsWith("data:image/png;base64,", carrinho.Itens[0].ImagemPrincipal);
+        Assert.True(string.IsNullOrWhiteSpace(carrinho.Itens[0].ImagemPrincipal));
+    }
+
+    [Fact]
+    public async Task CreateAsync_DeveRecusarCaminhoRelativoLocalComoImagem()
+    {
+        using var fixture = new ServiceTestFixture();
+        var vendedor = await fixture.CriarUsuarioAsync("seller-midias-local-path");
+        await fixture.CriarLojaAsync(vendedor.Id);
+
+        var excecao = await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.ProdutoService.CreateAsync(
+            new ProdutoCriacaoDto
+            {
+                Nome = "Produto com caminho local",
+                Categoria = "Teste",
+                Preco = 19.90m,
+                Estoque = 2,
+                Imagens = ["/uploads/foto-legada.png"]
+            },
+            vendedor.Id));
+
+        Assert.Equal(
+            "Use uma URL absoluta publicada para a midia do produto ou envie o arquivo em data URL.",
+            excecao.Message);
     }
 
     private static IFormFile CriarArquivo(string nomeArquivo, string contentType, byte[] conteudo)

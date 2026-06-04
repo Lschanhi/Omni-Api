@@ -495,6 +495,53 @@ public class PedidoServiceTests
     }
 
     [Fact]
+    public async Task BuscarPedidoDaLoja_DeveIndicarSolicitacaoCancelamentoAtivaQuandoCompradorAbrirTratativa()
+    {
+        using var fixture = new ServiceTestFixture();
+        var scenario = await fixture.CriarPedidoPagoAsync();
+        var lojaId = await fixture.Context.TBL_LOJA
+            .Where(l => l.UsuarioId == scenario.VendedorId)
+            .Select(l => l.Id)
+            .SingleAsync();
+
+        await fixture.PedidoService.AtualizarStatusPedidoDaLojaAsync(
+            lojaId,
+            scenario.VendedorId,
+            scenario.PedidoId,
+            StatusVenda.EmSeparacao);
+
+        await fixture.PedidoService.AtualizarStatusPedidoDaLojaAsync(
+            lojaId,
+            scenario.VendedorId,
+            scenario.PedidoId,
+            StatusVenda.Pronto);
+
+        await fixture.PedidoService.AtualizarStatusPedidoDaLojaAsync(
+            lojaId,
+            scenario.VendedorId,
+            scenario.PedidoId,
+            StatusVenda.Enviada);
+
+        await fixture.SolicitacaoCancelamentoService.CriarAsync(
+            scenario.PedidoId,
+            scenario.CompradorId,
+            new SolicitacaoCancelamentoCriacaoDto
+            {
+                Motivo = MotivoSolicitacaoCancelamento.EntregaNaoRecebida,
+                Observacao = "Cliente iniciou tratativa com a loja."
+            });
+
+        var pedidoLoja = await fixture.PedidoService.BuscarPedidoDaLojaAsync(
+            lojaId,
+            scenario.VendedorId,
+            scenario.PedidoId);
+
+        Assert.NotNull(pedidoLoja);
+        Assert.True(pedidoLoja!.PossuiSolicitacaoCancelamentoAtiva);
+        Assert.False(pedidoLoja.AguardandoConfirmacaoRecebimento);
+    }
+
+    [Fact]
     public async Task AtualizarStatusPedidoDaLoja_DeveManterPedidoPagoAteTodasAsVendasSeremEnviadas()
     {
         using var fixture = new ServiceTestFixture();
