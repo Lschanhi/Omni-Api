@@ -48,6 +48,8 @@ wwwroot/images/
 wwwroot/imagens/
 uploads/
 upload/
+!Models/Dtos/Uploads/
+!Models/Dtos/Uploads/*.cs
 
 # Visual Studio 2017 auto generated files
 Generated\ Files/
