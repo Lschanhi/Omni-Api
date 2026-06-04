@@ -123,6 +123,7 @@ builder.Services.AddOptions<AzureBlobStorageOptions>()
 // Servicos de negocio que serao injetados nos controllers.
     
 builder.Services.AddScoped<IArquivoStorageService, AzureBlobStorageService>();
+builder.Services.AddScoped<ArquivoUploadService>();
 builder.Services.AddScoped<AuthService>();
 builder.Services.AddScoped<UsuarioPerfilService>();
 builder.Services.AddScoped<TokenService>();

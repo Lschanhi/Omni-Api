@@ -50,6 +50,32 @@ public class UsuarioPerfilServiceTests
     }
 
     [Fact]
+    public async Task AtualizarFotoPerfilAsync_ComArquivoUrl_DevePersistirSomenteAReferencia()
+    {
+        using var fixture = new ServiceTestFixture();
+        var usuario = await fixture.CriarUsuarioAsync("usuario-com-url");
+        var urlBlob = await fixture.ArquivoStorageService.SalvarAsync(
+            "foto-perfil-test",
+            $"usuarios/{usuario.Id}/perfil",
+            "avatar-uploadado.png",
+            "image/png",
+            new MemoryStream([1, 2, 3, 4]));
+
+        var fotoPerfil = await fixture.UsuarioPerfilService.AtualizarFotoPerfilAsync(
+            usuario.Id,
+            new UsuarioFotoPerfilAtualizarDto
+            {
+                ArquivoUrl = urlBlob,
+                NomeArquivo = "avatar-uploadado.png",
+                MimeType = "image/png"
+            });
+
+        Assert.Equal(urlBlob, fotoPerfil.AvatarUrl);
+        Assert.Equal("avatar-uploadado.png", fotoPerfil.NomeArquivo);
+        Assert.Single(fixture.ArquivoStorageService.ArquivosSalvos);
+    }
+
+    [Fact]
     public async Task RemoverFotoPerfilAsync_DeveExcluirRegistroDaFoto()
     {
         using var fixture = new ServiceTestFixture();

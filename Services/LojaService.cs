@@ -218,13 +218,11 @@ namespace Omnimarket.Api.Services
                 DtCriacao = DateTimeOffset.UtcNow
             };
 
-            if (!string.IsNullOrWhiteSpace(dto.FotoPerfilDataUrl))
-            {
-                loja.FotoPerfilUrl = await SalvarFotoPerfilLojaAsync(
-                    usuarioId,
-                    dto.FotoPerfilDataUrl,
-                    dto.FotoPerfilNomeArquivo);
-            }
+            loja.FotoPerfilUrl = await ResolverFotoPerfilLojaAsync(
+                usuarioId,
+                dto.FotoPerfilUrl,
+                dto.FotoPerfilDataUrl,
+                dto.FotoPerfilNomeArquivo);
 
             await _context.TBL_LOJA.AddAsync(loja);
             await _context.SaveChangesAsync();
@@ -282,13 +280,13 @@ namespace Omnimarket.Api.Services
             if (novoTelefoneLoja != null)
                 loja.Telefone = novoTelefoneLoja;
 
-            if (!string.IsNullOrWhiteSpace(dto.FotoPerfilDataUrl))
-            {
-                loja.FotoPerfilUrl = await SalvarFotoPerfilLojaAsync(
-                    usuarioId,
-                    dto.FotoPerfilDataUrl,
-                    dto.FotoPerfilNomeArquivo);
-            }
+            var novaFotoPerfilUrl = await ResolverFotoPerfilLojaAsync(
+                usuarioId,
+                dto.FotoPerfilUrl,
+                dto.FotoPerfilDataUrl,
+                dto.FotoPerfilNomeArquivo);
+            if (!string.IsNullOrWhiteSpace(novaFotoPerfilUrl))
+                loja.FotoPerfilUrl = novaFotoPerfilUrl;
 
             await _context.SaveChangesAsync();
 
@@ -299,6 +297,30 @@ namespace Omnimarket.Api.Services
             }
 
             return MapearGestao(loja);
+        }
+
+        private async Task<string?> ResolverFotoPerfilLojaAsync(
+            int usuarioId,
+            string? fotoPerfilUrl,
+            string? fotoPerfilDataUrl,
+            string? nomeArquivo)
+        {
+            if (!string.IsNullOrWhiteSpace(fotoPerfilUrl))
+            {
+                var urlBlob = fotoPerfilUrl.Trim();
+                if (!_arquivoStorageService.UrlPertenceAoContainer(urlBlob, _blobStorageOptions.FotoPerfilLojaContainerName))
+                {
+                    throw new InvalidOperationException(
+                        "Use uma URL valida da rota de upload da foto de perfil da loja.");
+                }
+
+                return urlBlob;
+            }
+
+            if (string.IsNullOrWhiteSpace(fotoPerfilDataUrl))
+                return null;
+
+            return await SalvarFotoPerfilLojaAsync(usuarioId, fotoPerfilDataUrl, nomeArquivo);
         }
 
         private async Task<string> SalvarFotoPerfilLojaAsync(

@@ -23,6 +23,9 @@ namespace Omnimarket.Api.Models.Dtos.Produtos.Lojas
         [StringLength(120)]
         public string? EmailContato { get; set; }
 
+        [StringLength(500)]
+        public string? FotoPerfilUrl { get; set; }
+
         public string? FotoPerfilDataUrl { get; set; }
 
         [StringLength(260)]

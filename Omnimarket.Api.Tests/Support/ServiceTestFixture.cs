@@ -8,6 +8,7 @@ internal sealed class ServiceTestFixture : IDisposable
 
     public DataContext Context { get; }
     public FakeArquivoStorageService ArquivoStorageService { get; }
+    public ArquivoUploadService ArquivoUploadService { get; }
     public AuthService AuthService { get; }
     public AvaliacaoProdutoService AvaliacaoProdutoService { get; }
     public CarrinhoService CarrinhoService { get; }
@@ -59,6 +60,7 @@ internal sealed class ServiceTestFixture : IDisposable
 
         AvaliacaoProdutoService = new AvaliacaoProdutoService(Context);
         AuthService = new AuthService(Context, tokenService);
+        ArquivoUploadService = new ArquivoUploadService(ArquivoStorageService, blobStorageOptions);
         CarrinhoService = new CarrinhoService(Context);
         EnderecoService = new EnderecoService(Context);
         FinanceiroService = new FinanceiroService(Context, gatewayPagamentoService);
@@ -636,5 +638,18 @@ internal sealed class FakeArquivoStorageService : IArquivoStorageService
             ArquivosRemovidos.Add(urlArquivo);
 
         return Task.CompletedTask;
+    }
+
+    public bool UrlPertenceAoContainer(string? urlArquivo, string containerName)
+    {
+        if (!Uri.TryCreate(urlArquivo, UriKind.Absolute, out var arquivoUri))
+            return false;
+
+        var caminho = arquivoUri.AbsolutePath
+            .Trim('/')
+            .Split('/', StringSplitOptions.RemoveEmptyEntries);
+
+        return caminho.Length > 1 &&
+            string.Equals(caminho[0], containerName.Trim('/'), StringComparison.OrdinalIgnoreCase);
     }
 }

@@ -11,5 +11,7 @@ namespace Omnimarket.Api.Services.Interfaces
             CancellationToken cancellationToken = default);
 
         Task RemoverAsync(string? urlArquivo, CancellationToken cancellationToken = default);
+
+        bool UrlPertenceAoContainer(string? urlArquivo, string containerName);
     }
 }
